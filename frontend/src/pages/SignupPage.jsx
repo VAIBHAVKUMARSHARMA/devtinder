@@ -1,0 +1,195 @@
+import { useState, useEffect } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { registerUser, clearError } from '@/store/slices/authSlice';
+import Navbar from '@/components/Navbar';
+import { getIntendedDestination, clearIntendedDestination } from '@/utils/redirectUtils';
+import { FaGoogle, FaGithub } from 'react-icons/fa';
+
+const SignupPage = () => {
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+  });
+  const [passwordError, setPasswordError] = useState('');
+  const { loading, error, isAuthenticated } = useSelector((state) => state.auth);
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Only redirect if user is already authenticated when component mounts
+  useEffect(() => {
+    if (isAuthenticated) {
+      const destination = getIntendedDestination(searchParams);
+      clearIntendedDestination();
+      navigate(destination, { replace: true });
+    }
+  }, [isAuthenticated, navigate, searchParams]);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+
+
+    if ((name === 'password' || name === 'confirmPassword') && passwordError) {
+      setPasswordError('');
+    }
+
+
+    if (error) dispatch(clearError());
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const { name, email, password, confirmPassword } = formData;
+
+
+    if (password !== confirmPassword) {
+      setPasswordError('Passwords do not match');
+      return;
+    }
+
+    dispatch(registerUser({ name, email, password }))
+      .then((resultAction) => {
+        if (registerUser.fulfilled.match(resultAction)) {
+          const destination = getIntendedDestination(searchParams);
+          clearIntendedDestination();
+          navigate(destination, { replace: true });
+        }
+      });
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Navbar />
+
+      <div className="container flex items-center justify-center py-12">
+        <div className="w-full max-w-md space-y-6 p-8 border rounded-lg shadow-sm animate-in fade-in duration-500">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold">Create an Account</h1>
+            <p className="text-muted-foreground mt-2">
+              Join our community of developers
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <div className="p-3 rounded-md bg-red-50 text-red-500 text-sm animate-in slide-in-from-top-2 duration-300">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label htmlFor="name" className="text-sm font-medium">
+                Full Name
+              </label>
+              <input
+                id="name"
+                name="name"
+                type="text"
+                required
+                value={formData.name}
+                onChange={handleChange}
+                className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="John Doe"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="email" className="text-sm font-medium">
+                Email
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                value={formData.email}
+                onChange={handleChange}
+                className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="your.email@example.com"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="password" className="text-sm font-medium">
+                Password
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                value={formData.password}
+                onChange={handleChange}
+                className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="••••••••"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="confirmPassword" className="text-sm font-medium">
+                Confirm Password
+              </label>
+              <input
+                id="confirmPassword"
+                name="confirmPassword"
+                type="password"
+                required
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="••••••••"
+              />
+              {passwordError && (
+                <p className="text-red-500 text-xs mt-1">{passwordError}</p>
+              )}
+            </div>
+
+            <div className="pt-2">
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={loading}
+              >
+                {loading ? 'Creating account...' : 'Create Account'}
+              </Button>
+            </div>
+          </form>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Button variant="outline" className="w-full" onClick={() => window.location.href = 'http://localhost:3000/api/auth/google'}>
+              <FaGoogle className="mr-2 h-4 w-4" />
+              Google
+            </Button>
+            <Button variant="outline" className="w-full" onClick={() => window.location.href = 'http://localhost:3000/api/auth/github'}>
+              <FaGithub className="mr-2 h-4 w-4" />
+              GitHub
+            </Button>
+          </div>
+
+          <div className="text-center text-sm">
+            <span className="text-muted-foreground">Already have an account? </span>
+            <Link to="/login" className="text-primary hover:underline">
+              Sign in
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default SignupPage;

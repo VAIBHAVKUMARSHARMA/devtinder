@@ -1,0 +1,418 @@
+const User = require('../models/User');
+const Connection = require('../models/Connection');
+const jwt = require('jsonwebtoken');
+
+// Generate JWT token
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: '30d'
+  });
+};
+
+// Send token as cookie and in response
+const sendTokenResponse = (user, statusCode, res) => {
+  // Create token
+  const token = generateToken(user._id);
+
+  // Cookie options
+  const cookieOptions = {
+    expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+    httpOnly: true,
+    sameSite: 'none',
+    secure: true // Required with sameSite: 'none'
+  };
+
+
+  // Set cookie
+  res.cookie('jwt', token, cookieOptions);
+
+  // Return response
+  res.status(statusCode).json({
+    success: true,
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      profilePicture: user.profilePicture,
+      token // Include token in response for backward compatibility
+    }
+  });
+};
+
+// @desc    Register a new user
+// @route   POST /api/users/register
+// @access  Public
+const register = async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    // Check if user already exists
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({ success: false, message: 'User already exists' });
+    }
+
+    // Create new user
+    const user = await User.create({
+      name,
+      email,
+      password,
+    });
+
+    if (user) {
+      // Send token response with cookie
+      sendTokenResponse(user, 201, res);
+    }
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Login user
+// @route   POST /api/users/login
+// @access  Public
+const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Check if user exists
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
+
+    // Check if password is correct
+    const isMatch = await user.correctPassword(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
+
+    // Send token response with cookie
+    sendTokenResponse(user, 200, res);
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get user profile
+// @route   GET /api/users/profile
+// @access  Private
+const getProfile = async (req, res) => {
+  try {
+    // Get user data
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Get connections
+    const connections = await Connection.find({
+      $or: [
+        { requester: req.user._id, status: 'accepted' },
+        { recipient: req.user._id, status: 'accepted' }
+      ]
+    }).populate('requester recipient', 'name email profilePicture');
+
+    // Get connection requests
+    const connectionRequests = await Connection.find({
+      recipient: req.user._id,
+      status: 'pending'
+    }).populate('requester', 'name email profilePicture');
+
+    // Get sent requests
+    const sentRequests = await Connection.find({
+      requester: req.user._id,
+      status: 'pending'
+    }).populate('recipient', 'name email profilePicture');
+
+    // Map connections to return the connected user (not the current user)
+    const connectedUsers = connections.map(connection => {
+      const isRequester = connection.requester._id.toString() === req.user._id.toString();
+      return isRequester ? connection.recipient : connection.requester;
+    });
+
+    res.status(200).json({
+      success: true,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        bio: user.bio,
+        skills: user.skills,
+        profilePicture: user.profilePicture,
+        githubUrl: user.githubUrl,
+        linkedinUrl: user.linkedinUrl,
+        connections: connectedUsers,
+        connectionRequests: connectionRequests.map(request => request.requester),
+        sentRequests: sentRequests.map(request => request.recipient)
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Update user profile
+// @route   PUT /api/users/profile
+// @access  Private
+const updateProfile = async (req, res) => {
+  try {
+    const { name, bio, skills, githubUrl, linkedinUrl } = req.body;
+
+    console.log('Update Profile Request Body:', JSON.stringify(req.body, null, 2));
+    console.log('Update Profile Request File Object:', req.file);
+    if (req.file) console.log('Update Profile Request File Path:', req.file.path);
+    if (req.file) console.log('Update Profile Request File Path:', req.file.path);
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Update fields
+    if (name) user.name = name;
+    if (bio !== undefined) user.bio = bio;
+    if (skills) user.skills = skills;
+    if (githubUrl !== undefined) user.githubUrl = githubUrl;
+    if (linkedinUrl !== undefined) user.linkedinUrl = linkedinUrl;
+
+    if (req.body.projects) {
+      console.log("Projects Received (Raw):", req.body.projects);
+      try {
+        let projectsData = typeof req.body.projects === 'string'
+          ? JSON.parse(req.body.projects)
+          : req.body.projects;
+
+        if (req.files && req.files.projectImages) {
+          projectsData = projectsData.map(p => {
+            if (p.image && p.image.startsWith('UPLOAD_INDEX_')) {
+              const index = parseInt(p.image.split('_')[2]);
+              if (req.files.projectImages[index]) {
+                return { ...p, image: req.files.projectImages[index].path };
+              }
+            }
+            return p;
+          });
+        }
+        user.projects = projectsData;
+      } catch (e) {
+        console.error("Error parsing projects:", e);
+      }
+    }
+
+    // Check if file was uploaded
+    // Check if files were uploaded
+    if (req.files) {
+      if (req.files.profilePicture) {
+        user.profilePicture = req.files.profilePicture[0].path;
+      }
+      if (req.files.bannerUrl) {
+        user.bannerUrl = req.files.bannerUrl[0].path;
+      }
+    } else if (req.file) {
+      // Fallback for single file upload (though middleware checks fields, this is safe)
+      user.profilePicture = req.file.path;
+    }
+
+    const updatedUser = await user.save();
+
+    res.status(200).json({
+      success: true,
+      user: {
+        _id: updatedUser._id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        bio: updatedUser.bio,
+        skills: updatedUser.skills,
+        profilePicture: updatedUser.profilePicture,
+        bannerUrl: updatedUser.bannerUrl,
+        githubUrl: updatedUser.githubUrl,
+        linkedinUrl: updatedUser.linkedinUrl,
+        projects: updatedUser.projects
+      }
+    });
+  } catch (error) {
+    console.error('Update Profile Error:', error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get all users (for discovery)
+// @route   GET /api/users/feed
+// @access  Private
+const getAllUsers = async (req, res) => {
+  try {
+    // Exclude current user and get users with pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Filter by skills if provided
+    const skillsFilter = req.query.skills ? { skills: { $in: req.query.skills.split(',') } } : {};
+
+    // Get all connections for the current user
+    const connections = await Connection.find({
+      $or: [
+        { requester: req.user._id, status: 'accepted' },
+        { recipient: req.user._id, status: 'accepted' }
+      ]
+    });
+
+    // Extract IDs of connected users
+    const connectedUserIds = connections.map(connection => {
+      return connection.requester.toString() === req.user._id.toString()
+        ? connection.recipient
+        : connection.requester;
+    });
+
+    // Add the current user's ID to the exclusion list
+    const excludedIds = [req.user._id, ...connectedUserIds];
+
+    // Find users excluding the current user and connected users
+    const users = await User.find({
+      _id: { $nin: excludedIds },
+      ...skillsFilter
+    })
+      .select('name email bio skills profilePicture bannerUrl projects')
+      .skip(skip)
+      .limit(limit);
+
+    const total = await User.countDocuments({
+      _id: { $nin: excludedIds },
+      ...skillsFilter
+    });
+
+    res.status(200).json({
+      success: true,
+      users,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get user by ID
+// @route   GET /api/users/:id
+// @access  Private
+const getUserById = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id)
+      .select('name email bio skills profilePicture bannerUrl projects githubUrl linkedinUrl');
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      user
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Logout user / clear cookie
+// @route   GET /api/users/logout
+// @access  Public
+const logout = (req, res) => {
+  // Set cookie to expire in 10 seconds
+  res.cookie('jwt', 'logged_out', {
+    expires: new Date(Date.now() + 10 * 1000),
+    httpOnly: true
+  });
+
+  res.status(200).json({
+    success: true,
+    message: 'User logged out successfully'
+  });
+};
+
+// @desc    Search users by name or skills
+// @route   GET /api/users/search
+// @access  Private
+const searchUsers = async (req, res) => {
+  try {
+    const { query, page = 1, limit = 10 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    if (!query || query.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Search query is required'
+      });
+    }
+
+    // Get all connections for the current user
+    const connections = await Connection.find({
+      $or: [
+        { requester: req.user._id, status: 'accepted' },
+        { recipient: req.user._id, status: 'accepted' }
+      ]
+    });
+
+    // Extract IDs of connected users
+    const connectedUserIds = connections.map(connection => {
+      return connection.requester.toString() === req.user._id.toString()
+        ? connection.recipient
+        : connection.requester;
+    });
+
+    // Add the current user's ID to the exclusion list
+    const excludedIds = [req.user._id, ...connectedUserIds];
+
+    // Create search criteria for name and skills
+    const searchCriteria = {
+      _id: { $nin: excludedIds },
+      $or: [
+        { name: { $regex: query.trim(), $options: 'i' } }, // Case-insensitive name search
+        { skills: { $elemMatch: { $regex: query.trim(), $options: 'i' } } } // Case-insensitive skills search
+      ]
+    };
+
+    // Find users matching the search criteria
+    const users = await User.find(searchCriteria)
+      .select('name email bio skills profilePicture bannerUrl projects role githubUrl linkedinUrl')
+      .skip(skip)
+      .limit(parseInt(limit))
+      .sort({ name: 1 }); // Sort by name alphabetically
+
+    // Get total count for pagination
+    const total = await User.countDocuments(searchCriteria);
+
+    res.status(200).json({
+      success: true,
+      users,
+      query: query.trim(),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Export all controller functions
+module.exports = {
+  register,
+  login,
+  logout,
+  getProfile,
+  updateProfile,
+  getAllUsers,
+  getUserById,
+  searchUsers
+};
