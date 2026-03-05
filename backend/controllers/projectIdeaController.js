@@ -1,6 +1,54 @@
 const ProjectIdea = require('../models/ProjectIdea');
 const User = require('../models/User');
 
+const getInterestedUserId = (entry) => {
+    if (!entry) return null;
+
+    if (entry.user) {
+        if (typeof entry.user === 'object' && entry.user._id) {
+            return entry.user._id.toString();
+        }
+        if (entry.user.toString) {
+            return entry.user.toString();
+        }
+    }
+
+    // Handle legacy records where interestedUsers was stored directly as ObjectId
+    if (entry._id && !entry.status) {
+        return entry._id.toString();
+    }
+
+    if (entry.toString) {
+        return entry.toString();
+    }
+
+    return null;
+};
+
+const normalizeInterestedUsersForResponse = (ideaDoc) => {
+    const idea = ideaDoc.toObject ? ideaDoc.toObject() : ideaDoc;
+    const interestedUsers = Array.isArray(idea.interestedUsers) ? idea.interestedUsers : [];
+
+    idea.interestedUsers = interestedUsers
+        .map((entry) => {
+            if (!entry) return null;
+
+            // Expected populated shape: { user: { _id, ... }, status }
+            if (entry.user && typeof entry.user === 'object' && entry.user._id) {
+                return {
+                    ...entry,
+                    status: entry.status || 'pending'
+                };
+            }
+
+            // Legacy shape: ObjectId (not populated) or malformed entry
+            return null;
+        })
+        .filter(Boolean);
+
+    return idea;
+};
+
 // @desc    Create a new project idea
 // @route   POST /api/ideas
 // @access  Private
@@ -40,12 +88,13 @@ exports.getIdeas = async (req, res) => {
             .sort({ createdAt: -1 })
             .populate('author', 'name profilePicture bio headline')
             .populate('interestedUsers.user', 'name profilePicture bio headline githubUrl');
+        const normalizedIdeas = ideas.map(normalizeInterestedUsersForResponse);
 
         res.status(200).json({
             status: 'success',
-            results: ideas.length,
+            results: normalizedIdeas.length,
             data: {
-                ideas
+                ideas: normalizedIdeas
             }
         });
     } catch (err) {
@@ -71,11 +120,12 @@ exports.getIdeaDetails = async (req, res) => {
                 message: 'No idea found with that ID'
             });
         }
+        const normalizedIdea = normalizeInterestedUsersForResponse(idea);
 
         res.status(200).json({
             status: 'success',
             data: {
-                idea
+                idea: normalizedIdea
             }
         });
     } catch (err) {
@@ -146,7 +196,7 @@ exports.toggleInterest = async (req, res) => {
 
         // Check if user is already interested
         const isInterestedIndex = idea.interestedUsers.findIndex(
-            u => u.user.toString() === req.user._id.toString()
+            (u) => getInterestedUserId(u) === req.user._id.toString()
         );
 
         if (isInterestedIndex !== -1) {
@@ -293,7 +343,7 @@ exports.updateApplicantStatus = async (req, res) => {
 
         // Find the applicant
         const applicantIndex = idea.interestedUsers.findIndex(
-            u => u.user.toString() === req.params.userId
+            (u) => getInterestedUserId(u) === req.params.userId
         );
 
         if (applicantIndex === -1) {

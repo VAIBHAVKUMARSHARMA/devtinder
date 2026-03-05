@@ -132,10 +132,11 @@ const initializeSocket = (server) => {
         });
 
         socket.on('code_change', (data) => {
-            const { workspaceId, code } = data;
+            const { workspaceId, code, codeFiles } = data;
             socket.to(`workspace_${workspaceId}`).emit('receive_code_change', {
                 workspaceId,
                 code,
+                codeFiles,
                 senderId: socket.id
             });
         });

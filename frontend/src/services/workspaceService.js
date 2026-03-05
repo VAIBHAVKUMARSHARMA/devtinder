@@ -41,8 +41,8 @@ export const workspaceService = {
         return response.data;
     },
 
-    saveWorkspaceCode: async (id, code) => {
-        const response = await axiosInstance.put(`/workspaces/${id}/code`, { code });
+    saveWorkspaceCode: async (id, payload) => {
+        const response = await axiosInstance.put(`/workspaces/${id}/code`, payload);
         return response.data;
     }
 };

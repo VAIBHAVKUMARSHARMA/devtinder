@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { useSelector } from "react-redux";
 import { projectService } from "../services/projectService";
 import connectionService from "../services/connectionService";
 import ProjectIdeaCard from "../components/ProjectIdeaCard";
@@ -20,8 +19,6 @@ const ProjectIdeasPage = () => {
     const [creating, setCreating] = useState(false);
     const [connecting, setConnecting] = useState(false);
 
-    const { user } = useSelector((state) => state.auth);
-
     useEffect(() => {
         fetchIdeas();
     }, []);
@@ -30,7 +27,7 @@ const ProjectIdeasPage = () => {
         try {
             const response = await projectService.getAllIdeas();
             setIdeas(response.data.ideas);
-        } catch (error) {
+        } catch {
             toast.error("Failed to load project ideas");
         } finally {
             setLoading(false);
@@ -66,38 +63,52 @@ const ProjectIdeasPage = () => {
             await projectService.deleteIdea(id);
             toast.success("Project idea deleted");
             setIdeas(ideas.filter((idea) => idea._id !== id));
-        } catch (error) {
+        } catch {
             toast.error("Failed to delete project idea");
         }
     };
 
     const handleConnect = async (ideaId, userId, isConnected, isRequestSent, hasReceivedRequest, isInterestedInProject) => {
+        if (!ideaId) {
+            toast.error("Invalid project idea");
+            return;
+        }
+
         setConnecting(true);
         try {
-            // First register interest (always safe to try)
             await projectService.toggleInterest(ideaId);
+            const nextInterestState = !isInterestedInProject;
 
-            // Skip connection request if already connected or pending
-            if (!isConnected && !isRequestSent && !hasReceivedRequest) {
+            // Send connection request only when user is newly interested and no existing relationship/request
+            if (nextInterestState && userId && !isConnected && !isRequestSent && !hasReceivedRequest) {
                 try {
                     await connectionService.sendConnectionRequest(userId);
                     toast.success("Connection request and interest sent!");
                 } catch (connError) {
-                    const errorMsg = typeof connError === 'string' ? connError : (connError.response?.data?.message || connError.message || connError.toString());
-                    if (errorMsg.toLowerCase().includes("already") || errorMsg.toLowerCase().includes("existing")) {
+                    const errorMsg = String(
+                        typeof connError === "string"
+                            ? connError
+                            : (connError.response?.data?.message || connError.message || connError.toString())
+                    );
+
+                    const safeToIgnore =
+                        errorMsg.toLowerCase().includes("already") ||
+                        errorMsg.toLowerCase().includes("existing") ||
+                        errorMsg.toLowerCase().includes("sent you a connection request");
+
+                    if (safeToIgnore) {
                         toast.success("Interest status registered!");
                     } else {
-                        throw connError;
+                        toast.error(errorMsg || "Interest updated, but connection request failed");
                     }
                 }
             } else {
-                toast.success(isInterestedInProject ? "Interest removed!" : "Interest registered!");
+                toast.success(nextInterestState ? "Interest registered!" : "Interest removed!");
             }
-
-            fetchIdeas(); // Refresh to show updated interest count
         } catch (error) {
             toast.error(error.response?.data?.message || error.message || "Failed to update interest/connection");
         } finally {
+            await fetchIdeas(); // Always refresh to reflect latest interest state
             setConnecting(false);
         }
     };

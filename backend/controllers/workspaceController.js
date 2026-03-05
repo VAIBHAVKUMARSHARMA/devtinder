@@ -2,6 +2,49 @@ const Workspace = require('../models/Workspace');
 const User = require('../models/User');
 const Task = require('../models/Task');
 
+const DEFAULT_JS_CODE = '// Write your code here...\n\nconsole.log("Welcome to your Collaborative Workspace!");\n';
+const DEFAULT_HTML_CODE = `<main class="app">
+  <h1>DevTinder Workspace</h1>
+  <p>Edit HTML, CSS, and JS, then click Run to preview.</p>
+  <button id="demoButton">Click me</button>
+</main>`;
+const DEFAULT_CSS_CODE = `body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 2rem;
+  background: #f4f7fb;
+}
+
+.app {
+  max-width: 560px;
+  margin: 0 auto;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.12);
+}
+
+h1 {
+  margin-top: 0;
+  color: #0f172a;
+}
+
+button {
+  margin-top: 1rem;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+}`;
+
+const normalizeCodeFiles = (codeFiles, fallbackJs = DEFAULT_JS_CODE) => ({
+    html: typeof codeFiles?.html === 'string' ? codeFiles.html : DEFAULT_HTML_CODE,
+    css: typeof codeFiles?.css === 'string' ? codeFiles.css : DEFAULT_CSS_CODE,
+    js: typeof codeFiles?.js === 'string' ? codeFiles.js : fallbackJs
+});
+
 // @desc    Create a new workspace
 // @route   POST /api/workspaces
 // @access  Private
@@ -82,11 +125,13 @@ exports.getWorkspaceDetails = async (req, res) => {
                 message: 'You are not a member of this workspace'
             });
         }
+        const workspacePayload = workspace.toObject();
+        workspacePayload.codeFiles = normalizeCodeFiles(workspacePayload.codeFiles, workspacePayload.code);
 
         res.status(200).json({
             status: 'success',
             data: {
-                workspace
+                workspace: workspacePayload
             }
         });
     } catch (err) {
@@ -293,9 +338,6 @@ exports.deleteWorkspace = async (req, res) => {
             });
         }
 
-        // Import Task model here to avoid circular dependencies if needed, or at the top
-        const Task = require('../models/Task');
-
         // Delete all tasks associated with this workspace
         await Task.deleteMany({ workspaceId: req.params.id });
 
@@ -319,7 +361,7 @@ exports.deleteWorkspace = async (req, res) => {
 // @access  Private
 exports.saveWorkspaceCode = async (req, res) => {
     try {
-        const { code } = req.body;
+        const { code, codeFiles } = req.body;
         const workspace = await Workspace.findById(req.params.id);
 
         if (!workspace) {
@@ -340,12 +382,33 @@ exports.saveWorkspaceCode = async (req, res) => {
             });
         }
 
-        workspace.code = code;
+        const existingCodeFiles = normalizeCodeFiles(workspace.codeFiles, workspace.code);
+        let nextCodeFiles = existingCodeFiles;
+
+        if (codeFiles && typeof codeFiles === 'object') {
+            nextCodeFiles = normalizeCodeFiles(codeFiles, existingCodeFiles.js);
+        } else if (typeof code === 'string') {
+            nextCodeFiles = {
+                ...existingCodeFiles,
+                js: code
+            };
+        } else {
+            return res.status(400).json({
+                status: 'fail',
+                message: 'Provide codeFiles or code to save'
+            });
+        }
+
+        workspace.codeFiles = nextCodeFiles;
+        workspace.code = nextCodeFiles.js;
         await workspace.save();
 
         res.status(200).json({
             status: 'success',
-            message: 'Code saved successfully'
+            message: 'Code saved successfully',
+            data: {
+                codeFiles: nextCodeFiles
+            }
         });
     } catch (err) {
         res.status(400).json({

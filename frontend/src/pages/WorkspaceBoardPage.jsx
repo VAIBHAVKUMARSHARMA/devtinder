@@ -433,6 +433,7 @@ const WorkspaceBoardPage = () => {
                     <WorkspaceCodeEditor
                         workspaceId={workspace._id}
                         initialCode={workspace.code}
+                        initialCodeFiles={workspace.codeFiles}
                     />
                 </div>
             )}

@@ -2,6 +2,8 @@ import { X, Check, XCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const InterestedUsersList = ({ users, onClose, ideaId, isAuthor, onUpdateApplicant }) => {
+    const safeUsers = (users || []).filter((item) => item?.user?._id);
+
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
             <div className="bg-background rounded-lg shadow-xl w-full max-w-md p-6 animate-in zoom-in-95 duration-200">
@@ -16,12 +18,12 @@ const InterestedUsersList = ({ users, onClose, ideaId, isAuthor, onUpdateApplica
                 </div>
 
                 <div className="space-y-6 max-h-[60vh] overflow-y-auto px-1">
-                    {users.length === 0 ? (
+                    {safeUsers.length === 0 ? (
                         <p className="text-muted-foreground text-center py-4">
                             No developers have shown interest yet.
                         </p>
                     ) : (
-                        users.map((item) => {
+                        safeUsers.map((item) => {
                             const user = item.user;
                             const status = item.status || 'pending';
                             const githubUsername = user.githubUrl ? user.githubUrl.split('/').pop() : null;

@@ -6,7 +6,8 @@ import InterestedUsersList from "./InterestedUsersList";
 
 const ProjectIdeaCard = ({ idea, onConnect, onDelete, onConvert, onUpdateApplicant, isConnecting }) => {
     const { user } = useSelector((state) => state.auth);
-    const isAuthor = user?._id === idea.author._id;
+    const authorId = idea.author?._id;
+    const isAuthor = user?._id === authorId;
 
     // Format connections status to check if already connected or requested
     const [showInterestedModal, setShowInterestedModal] = useState(false);
@@ -20,51 +21,38 @@ const ProjectIdeaCard = ({ idea, onConnect, onDelete, onConvert, onUpdateApplica
     };
 
     const isConnected = user?.connections?.some(
-        (connection) => areIdsEqual(connection, idea.author._id)
+        (connection) => areIdsEqual(connection, authorId)
     );
 
     const isRequestSent = user?.sentRequests?.some(
-        (request) => areIdsEqual(request, idea.author._id)
+        (request) => areIdsEqual(request, authorId)
     );
 
     const hasReceivedRequest = user?.connectionRequests?.some(
-        (request) => areIdsEqual(request, idea.author._id)
+        (request) => areIdsEqual(request, authorId)
     );
 
     const isInterestedInProject = idea.interestedUsers?.some(
         (u) => areIdsEqual(u.user, user?._id)
     );
 
-    // Button Logic:
-    // We want to allow clicking if the user is NOT yet interested in this specific project,
-    // even if they are already connected or have sent a request.
-    // The only time we fully disable is if:
-    // 1. Connection request received (they should accept/reject elsewhere for now, or we could handle it)
-    // 2. OR they are already interested in THIS project.
-
-    // Actually, "Interested" is a toggle, so maybe we never disable for interest? 
-    // But for "Connection" logic, we might want to show status.
-
-    // Let's refine:
-    // If not connected/requested: "Connect to Collaborate"
-    // If connected/requested BUT not interested: "Also Interested" (or similar)
-    // If interested: "Interested" (Green/Different color?)
-
-    const canInteract = true; // Always allow interaction to toggle interest
+    const validInterestedUsers = (idea.interestedUsers || []).filter(
+        (entry) => entry?.user && (typeof entry.user === "object" ? entry.user._id : entry.user)
+    );
 
     return (
         <div className="bg-card text-card-foreground rounded-lg border shadow-sm p-6 mb-4 hover:shadow-md transition-shadow relative">
             <div className="flex justify-between items-start mb-4">
                 <div className="flex items-center space-x-4">
                     <img
-                        src={idea.author.profilePicture || "/avatar-placeholder.png"}
-                        alt={idea.author.name}
+                        src={idea.author?.profilePicture || "/avatar-placeholder.png"}
+                        alt={idea.author?.name || "Author"}
                         className="w-12 h-12 rounded-full object-cover border-2 border-primary/10"
                     />
                     <div>
                         <h3 className="font-semibold text-lg">{idea.title}</h3>
                         <p className="text-sm text-muted-foreground flex items-center">
-                            By {idea.author.name} • {formatDistanceToNow(new Date(idea.createdAt), { addSuffix: true })}
+                            By {idea.author?.name || "Unknown"} • {formatDistanceToNow(new Date(idea.createdAt), { addSuffix: true })}
                         </p>
                     </div>
                 </div>
@@ -76,7 +64,7 @@ const ProjectIdeaCard = ({ idea, onConnect, onDelete, onConvert, onUpdateApplica
                             title="View Interested Developers"
                         >
                             <Users size={16} className="mr-1" />
-                            {idea.interestedUsers?.length || 0} Interested
+                            {validInterestedUsers.length} Interested
                         </button>
                         {idea.status !== 'closed' && onConvert && (
                             <button
@@ -120,7 +108,7 @@ const ProjectIdeaCard = ({ idea, onConnect, onDelete, onConvert, onUpdateApplica
 
                 {!isAuthor && (
                     <button
-                        onClick={() => onConnect(idea._id, idea.author._id, isConnected, isRequestSent, hasReceivedRequest, isInterestedInProject)}
+                        onClick={() => onConnect(idea._id, authorId, isConnected, isRequestSent, hasReceivedRequest, isInterestedInProject)}
                         disabled={isConnecting}
                         className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors disabled:opacity-50 ${isInterestedInProject
                             ? "bg-green-500 text-white hover:bg-green-600"
@@ -141,7 +129,7 @@ const ProjectIdeaCard = ({ idea, onConnect, onDelete, onConvert, onUpdateApplica
 
             {showInterestedModal && (
                 <InterestedUsersList
-                    users={idea.interestedUsers || []}
+                    users={validInterestedUsers}
                     onClose={() => setShowInterestedModal(false)}
                     ideaId={idea._id}
                     isAuthor={isAuthor}
