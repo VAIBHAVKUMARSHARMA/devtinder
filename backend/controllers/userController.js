@@ -9,18 +9,24 @@ const generateToken = (id) => {
   });
 };
 
+const getAuthCookieOptions = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  return {
+    expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+    httpOnly: true,
+    sameSite: isProduction ? 'none' : 'lax',
+    secure: isProduction
+  };
+};
+
 // Send token as cookie and in response
 const sendTokenResponse = (user, statusCode, res) => {
   // Create token
   const token = generateToken(user._id);
 
   // Cookie options
-  const cookieOptions = {
-    expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-    httpOnly: true,
-    sameSite: 'none',
-    secure: true // Required with sameSite: 'none'
-  };
+  const cookieOptions = getAuthCookieOptions();
 
 
   // Set cookie
@@ -29,6 +35,7 @@ const sendTokenResponse = (user, statusCode, res) => {
   // Return response
   res.status(statusCode).json({
     success: true,
+    token,
     user: {
       _id: user._id,
       name: user.name,
@@ -322,10 +329,11 @@ const getUserById = async (req, res) => {
 // @route   GET /api/users/logout
 // @access  Public
 const logout = (req, res) => {
-  // Set cookie to expire in 10 seconds
-  res.cookie('jwt', 'logged_out', {
-    expires: new Date(Date.now() + 10 * 1000),
-    httpOnly: true
+  const isProduction = process.env.NODE_ENV === 'production';
+  res.clearCookie('jwt', {
+    httpOnly: true,
+    sameSite: isProduction ? 'none' : 'lax',
+    secure: isProduction
   });
 
   res.status(200).json({

@@ -7,6 +7,9 @@ import Navbar from '@/components/Navbar';
 import { getIntendedDestination, clearIntendedDestination } from '@/utils/redirectUtils';
 import { FaGoogle, FaGithub } from 'react-icons/fa';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const SERVER_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, '');
+
 const SignupPage = () => {
   const [formData, setFormData] = useState({
     name: '',
@@ -170,11 +173,11 @@ const SignupPage = () => {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Button variant="outline" className="w-full" onClick={() => window.location.href = 'http://localhost:3000/api/auth/google'}>
+            <Button variant="outline" className="w-full" onClick={() => window.location.href = `${SERVER_BASE_URL}/api/auth/google`}>
               <FaGoogle className="mr-2 h-4 w-4" />
               Google
             </Button>
-            <Button variant="outline" className="w-full" onClick={() => window.location.href = 'http://localhost:3000/api/auth/github'}>
+            <Button variant="outline" className="w-full" onClick={() => window.location.href = `${SERVER_BASE_URL}/api/auth/github`}>
               <FaGithub className="mr-2 h-4 w-4" />
               GitHub
             </Button>

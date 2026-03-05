@@ -16,7 +16,7 @@ const authSlice = createSlice({
     // Auth state management
     setAuthData: (state, action) => {
       state.user = action.payload.user || null;
-      state.token = action.payload.token || null;
+      state.token = action.payload.token || action.payload.user?.token || null;
       state.isAuthenticated = !!action.payload.user;
       state.loading = false;
       state.error = null;
@@ -108,7 +108,16 @@ export const getCurrentUser = () => async (dispatch) => {
     dispatch(setAuthData(response));
     return response;
   } catch (error) {
-    dispatch(setError(error));
+    const errorMessage = typeof error === 'string' ? error : error?.message;
+    const errorStatus = typeof error === 'object' ? error?.status : null;
+
+    // Avoid showing an error on app startup for expected unauthenticated state.
+    if (errorStatus === 401) {
+      dispatch(clearAuthData());
+      return null;
+    }
+
+    dispatch(setError(errorMessage || 'Failed to get user profile'));
     throw error;
   }
 };

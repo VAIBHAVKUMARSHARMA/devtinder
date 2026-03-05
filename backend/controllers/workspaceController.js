@@ -7,12 +7,11 @@ const Task = require('../models/Task');
 // @access  Private
 exports.createWorkspace = async (req, res) => {
     try {
-        const { name, description, playValue } = req.body;
+        const { name, description } = req.body;
 
         const newWorkspace = await Workspace.create({
             name,
             description,
-            playValue: Number(playValue) || 0,
             owner: req.user._id,
             members: [req.user._id] // owner is also a member
         });
@@ -21,54 +20,6 @@ exports.createWorkspace = async (req, res) => {
             status: 'success',
             data: {
                 workspace: newWorkspace
-            }
-        });
-    } catch (err) {
-        res.status(400).json({
-            status: 'fail',
-            message: err.message
-        });
-    }
-};
-
-// @desc    Update workspace play value (rupees)
-// @route   PUT /api/workspaces/:id/play-value
-// @access  Private
-exports.updatePlayValue = async (req, res) => {
-    try {
-        const { playValue } = req.body;
-        const workspace = await Workspace.findById(req.params.id);
-
-        if (!workspace) {
-            return res.status(404).json({
-                status: 'fail',
-                message: 'Workspace not found'
-            });
-        }
-
-        if (workspace.owner.toString() !== req.user._id.toString()) {
-            return res.status(403).json({
-                status: 'fail',
-                message: 'Only the workspace owner can update play value'
-            });
-        }
-
-        const numericValue = Number(playValue);
-        if (Number.isNaN(numericValue) || numericValue < 0) {
-            return res.status(400).json({
-                status: 'fail',
-                message: 'Play value must be a valid non-negative number'
-            });
-        }
-
-        workspace.playValue = numericValue;
-        await workspace.save();
-
-        res.status(200).json({
-            status: 'success',
-            message: 'Play value updated successfully',
-            data: {
-                workspace
             }
         });
     } catch (err) {

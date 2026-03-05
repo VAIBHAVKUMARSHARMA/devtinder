@@ -44,7 +44,11 @@ const getCurrentUser = async () => {
     const response = await api.get('/users/profile');
     return response.data;
   } catch (error) {
-    throw error.response?.data?.message || 'Failed to get user profile';
+    const normalizedError = new Error(
+      error.response?.data?.message || error.message || 'Failed to get user profile'
+    );
+    normalizedError.status = error.response?.status;
+    throw normalizedError;
   }
 };
 
@@ -106,4 +110,3 @@ const userService = {
 };
 
 export default userService;
-

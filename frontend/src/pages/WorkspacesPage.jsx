@@ -10,7 +10,7 @@ const WorkspacesPage = () => {
     const [loading, setLoading] = useState(true);
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [creating, setCreating] = useState(false);
-    const [newWorkspace, setNewWorkspace] = useState({ name: "", description: "", playValue: 0 });
+    const [newWorkspace, setNewWorkspace] = useState({ name: "", description: "" });
 
     useEffect(() => {
         fetchWorkspaces();
@@ -39,7 +39,7 @@ const WorkspacesPage = () => {
             await workspaceService.createWorkspace(newWorkspace);
             toast.success("Workspace created successfully!");
             setShowCreateModal(false);
-            setNewWorkspace({ name: "", description: "", playValue: 0 });
+            setNewWorkspace({ name: "", description: "" });
             fetchWorkspaces();
         } catch (error) {
             toast.error(error.response?.data?.message || "Failed to create workspace");
@@ -104,9 +104,6 @@ const WorkspacesPage = () => {
                             <p className="text-muted-foreground text-sm mb-6 line-clamp-2 h-10">
                                 {workspace.description || "No description provided."}
                             </p>
-                            <p className="text-sm mb-4">
-                                Play Value: <span className="font-semibold">Rs {Number(workspace.playValue || 0).toFixed(2)}</span>
-                            </p>
 
                             <div className="flex items-center justify-between mt-auto">
                                 <div className="flex items-center text-sm text-muted-foreground">
@@ -162,21 +159,6 @@ const WorkspacesPage = () => {
                                     className="w-full p-2.5 rounded-lg border bg-background focus:ring-2 focus:ring-primary focus:border-primary outline-none min-h-[100px] resize-y transition-all"
                                     placeholder="What is this workspace for?"
                                     maxLength={1000}
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium mb-1.5">
-                                    Play Value (INR)
-                                </label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={newWorkspace.playValue}
-                                    onChange={(e) => setNewWorkspace({ ...newWorkspace, playValue: e.target.value })}
-                                    className="w-full p-2.5 rounded-lg border bg-background focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all"
-                                    placeholder="e.g., 99"
                                 />
                             </div>
 

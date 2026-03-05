@@ -28,11 +28,6 @@ const workspaceSchema = new mongoose.Schema({
     code: {
         type: String,
         default: '// Write your code here...\n\nconsole.log("Welcome to your Collaborative Workspace!");\n'
-    },
-    playValue: {
-        type: Number,
-        default: 0,
-        min: [0, 'Play value cannot be negative']
     }
 }, { timestamps: true });
 

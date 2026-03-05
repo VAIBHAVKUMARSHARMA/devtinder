@@ -17,8 +17,7 @@ import {
     X,
     UserPlus,
     Code,
-    CheckSquare,
-    IndianRupee
+    CheckSquare
 } from "lucide-react";
 
 import toast from "react-hot-toast";
@@ -36,8 +35,6 @@ const WorkspaceBoardPage = () => {
     const [loading, setLoading] = useState(true);
     const [draggedTask, setDraggedTask] = useState(null);
     const [activeTab, setActiveTab] = useState("board"); // 'board' or 'code'
-    const [playValueInput, setPlayValueInput] = useState("0");
-    const [savingPlayValue, setSavingPlayValue] = useState(false);
 
     // Modal state
     const [showTaskModal, setShowTaskModal] = useState(false);
@@ -69,7 +66,6 @@ const WorkspaceBoardPage = () => {
                 taskService.getWorkspaceTasks(workspaceId),
             ]);
             setWorkspace(workspaceRes.data.workspace);
-            setPlayValueInput(String(workspaceRes.data.workspace.playValue || 0));
             setTasks(tasksRes.data.tasks);
         } catch {
             toast.error("Failed to load workspace data");
@@ -240,27 +236,6 @@ const WorkspaceBoardPage = () => {
         }
     };
 
-    const handleSavePlayValue = async () => {
-        const parsedValue = Number(playValueInput);
-        if (Number.isNaN(parsedValue) || parsedValue < 0) {
-            toast.error("Play value must be a non-negative number");
-            return;
-        }
-
-        try {
-            setSavingPlayValue(true);
-            const response = await workspaceService.updatePlayValue(workspaceId, parsedValue);
-            const updatedValue = response.data.workspace.playValue || 0;
-            setWorkspace((prev) => ({ ...prev, playValue: updatedValue }));
-            setPlayValueInput(String(updatedValue));
-            toast.success("Play value updated");
-        } catch (error) {
-            toast.error(error.response?.data?.message || "Failed to update play value");
-        } finally {
-            setSavingPlayValue(false);
-        }
-    };
-
     if (loading) {
         return (
             <div className="flex justify-center items-center h-full min-h-[500px]">
@@ -327,35 +302,6 @@ const WorkspaceBoardPage = () => {
                 </div>
 
                 <div className="flex items-center space-x-4">
-                    {workspace.owner?._id === user?._id ? (
-                        <div className="flex items-center gap-2">
-                            <div className="flex items-center text-sm text-muted-foreground">
-                                <IndianRupee size={15} className="mr-1" />
-                                Play Value
-                            </div>
-                            <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={playValueInput}
-                                onChange={(e) => setPlayValueInput(e.target.value)}
-                                className="w-28 p-1.5 rounded border bg-background text-sm"
-                            />
-                            <button
-                                onClick={handleSavePlayValue}
-                                disabled={savingPlayValue}
-                                className="text-xs px-3 py-1.5 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-                            >
-                                {savingPlayValue ? "Saving..." : "Set"}
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="text-sm text-muted-foreground bg-secondary px-3 py-1.5 rounded-md flex items-center">
-                            <IndianRupee size={15} className="mr-1" />
-                            Play Value: {Number(workspace.playValue || 0).toFixed(2)}
-                        </div>
-                    )}
-
                     <div className="flex -space-x-2">
                         {workspace.members.slice(0, 5).map((member) => (
                             <img
@@ -487,9 +433,6 @@ const WorkspaceBoardPage = () => {
                     <WorkspaceCodeEditor
                         workspaceId={workspace._id}
                         initialCode={workspace.code}
-                        playValue={workspace.playValue || 0}
-                        ownerId={workspace.owner?._id}
-                        currentUserId={user?._id}
                     />
                 </div>
             )}

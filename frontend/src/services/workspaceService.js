@@ -44,20 +44,5 @@ export const workspaceService = {
     saveWorkspaceCode: async (id, code) => {
         const response = await axiosInstance.put(`/workspaces/${id}/code`, { code });
         return response.data;
-    },
-
-    updatePlayValue: async (id, playValue) => {
-        const response = await axiosInstance.put(`/workspaces/${id}/play-value`, { playValue });
-        return response.data;
-    },
-
-    createPaymentOrder: async (workspaceId) => {
-        const response = await axiosInstance.post("/payments/create-order", { workspaceId });
-        return response.data;
-    },
-
-    verifyPayment: async (paymentPayload) => {
-        const response = await axiosInstance.post("/payments/verify", paymentPayload);
-        return response.data;
     }
 };

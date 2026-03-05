@@ -7,10 +7,18 @@ const getSecretRoomId = (userId, targetUserId) => {
     return crypto.createHash("sha256").update([userId, targetUserId].sort().join("$")).digest("hex");
 };
 
+const getAllowedOrigins = () => {
+    return (process.env.FRONTEND_URL || "")
+        .split(",")
+        .map((origin) => origin.trim().replace(/\/+$/, ""))
+        .filter(Boolean);
+};
+
 const initializeSocket = (server) => {
+    const allowedOrigins = getAllowedOrigins();
     const io = socket(server, {
         cors: {
-            origin: process.env.FRONTEND_URL,
+            origin: allowedOrigins.length === 1 ? allowedOrigins[0] : allowedOrigins,
             credentials: true,
         },
     });
@@ -115,6 +123,21 @@ const initializeSocket = (server) => {
                 console.error('Error in send_message handler:', err);
                 socket.emit('message_error', { error: 'Failed to send message' });
             }
+        });
+
+        // Workspace collaborative code editor events
+        socket.on('join_workspace', (workspaceId) => {
+            socket.join(`workspace_${workspaceId}`);
+            console.log(`User ${socket.id} joined workspace room: workspace_${workspaceId}`);
+        });
+
+        socket.on('code_change', (data) => {
+            const { workspaceId, code } = data;
+            socket.to(`workspace_${workspaceId}`).emit('receive_code_change', {
+                workspaceId,
+                code,
+                senderId: socket.id
+            });
         });
 
         socket.on("disconnect", () => {

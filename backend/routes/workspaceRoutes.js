@@ -8,8 +8,7 @@ const {
     acceptInvitation,
     rejectInvitation,
     deleteWorkspace,
-    saveWorkspaceCode,
-    updatePlayValue
+    saveWorkspaceCode
 } = require('../controllers/workspaceController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -39,8 +38,5 @@ router.route('/:id/reject')
 
 router.route('/:id/code')
     .put(saveWorkspaceCode);
-
-router.route('/:id/play-value')
-    .put(updatePlayValue);
 
 module.exports = router;
