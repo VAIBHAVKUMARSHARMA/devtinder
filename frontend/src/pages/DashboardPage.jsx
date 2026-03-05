@@ -27,13 +27,22 @@ const DashboardPage = () => {
   // Setup local feed state that we can 'pop' from
   const [feedUsers, setFeedUsers] = useState([]);
 
+  // Helper to safely compare IDs
+  const areIdsEqual = (id1, id2) => {
+    if (!id1 || !id2) return false;
+    const str1 = typeof id1 === 'object' ? id1._id || id1 : id1;
+    const str2 = typeof id2 === 'object' ? id2._id || id2 : id2;
+    return String(str1) === String(str2);
+  };
+
   useEffect(() => {
     if (users) {
       // Filter logic similar to before
       const filtered = users.filter(feedUser => {
-        if (feedUser._id === user?._id) return false;
-        if (user?.connections?.some(conn => conn._id === feedUser._id)) return false;
-        if (user?.sentRequests?.some(req => req._id === feedUser._id)) return false;
+        if (areIdsEqual(feedUser._id, user?._id)) return false;
+        if (user?.connections?.some(conn => areIdsEqual(conn, feedUser._id))) return false;
+        if (user?.sentRequests?.some(req => areIdsEqual(req, feedUser._id))) return false;
+        if (user?.connectionRequests?.some(req => areIdsEqual(req, feedUser._id))) return false; // Also filter received requests? Usually yes.
         return true;
       });
       setFeedUsers(filtered);
@@ -62,7 +71,7 @@ const DashboardPage = () => {
     setTimeout(() => {
       setFeedUsers((prev) => prev.filter((u) => u._id !== userId));
       setLastDirection(null);
-    }, 200);
+    }, 300);
   };
 
   if (loading) {

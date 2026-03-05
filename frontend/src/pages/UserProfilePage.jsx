@@ -1,22 +1,73 @@
-import { useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, MessageSquare, UserPlus } from 'lucide-react';
+import { ArrowLeft, MessageSquare, UserPlus, Star } from 'lucide-react';
 import { fetchUserProfile } from '@/store/slices/userProfileSlice';
+import { sendRequest } from '@/store/slices/connectionSlice';
+import toast from 'react-hot-toast';
+import { Loader2 } from 'lucide-react';
+import ReviewList from '@/components/ReviewList';
+import ReviewForm from '@/components/ReviewForm';
 
 const UserProfilePage = () => {
   const { id } = useParams();
   const dispatch = useDispatch();
   const { userProfile, loading, error } = useSelector((state) => state.userProfile);
+  const { user } = useSelector((state) => state.auth);
+  const [showReviewForm, setShowReviewForm] = useState(false);
+  const [refreshReviews, setRefreshReviews] = useState(0);
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  // Helper to check connection status
+  const getConnectionStatus = (targetUserId) => {
+    if (!user || !targetUserId) return 'unknown';
+
+    // Check connections
+    if (user.connections?.some(u => u._id === targetUserId || u === targetUserId)) return 'connected';
+
+    // Check sent requests
+    if (user.sentRequests?.some(u => u._id === targetUserId || u === targetUserId)) return 'pending';
+
+    // Check received requests
+    if (user.connectionRequests?.some(u => u._id === targetUserId || u === targetUserId)) return 'received';
+
+    return 'none';
+  };
+
+  const handleConnect = async (userId) => {
+    if (!user) {
+      toast.error("Please login to connect");
+      return;
+    }
+    setIsConnecting(true);
+    try {
+      await dispatch(sendConnectionRequest(userId)).unwrap();
+      toast.success("Connection request sent!");
+      // We should ideally reload the auth user to get updated sentRequests
+      // for now simple state update might be tricky without reducer update
+      // but the slice should handle it if attached.
+      window.location.reload(); // Simple brute force update for now to reflect button state
+    } catch (err) {
+      toast.error(err || "Failed to send request");
+    } finally {
+      setIsConnecting(false);
+    }
+  };
 
   useEffect(() => {
     if (id) {
       dispatch(fetchUserProfile(id));
+      setShowReviewForm(false);
     }
   }, [dispatch, id]);
+
+  const handleReviewAdded = () => {
+    setRefreshReviews(prev => prev + 1);
+    setShowReviewForm(false);
+  };
 
   if (loading) {
     return <div className="flex justify-center items-center h-64">Loading profile...</div>;
@@ -41,7 +92,7 @@ const UserProfilePage = () => {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-10">
       <div className="flex items-center">
         <Link to="/dashboard">
           <Button variant="ghost" className="mr-4">
@@ -53,7 +104,7 @@ const UserProfilePage = () => {
       </div>
 
       <div className="animate-in fade-in duration-500">
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden mb-8">
           <div className="h-40 relative bg-gradient-to-r from-primary/20 to-primary/40">
             {userProfile.bannerUrl && <img src={userProfile.bannerUrl} alt="Banner" className="w-full h-full object-cover" />}
           </div>
@@ -65,7 +116,7 @@ const UserProfilePage = () => {
           </div>
           <CardHeader className="pt-20">
             <CardTitle className="text-2xl">{userProfile.name}</CardTitle>
-            <CardDescription>{userProfile.skills?.join(', ')}</CardDescription>
+            <CardDescription>{userProfile.headline || userProfile.skills?.join(', ')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div>
@@ -118,11 +169,33 @@ const UserProfilePage = () => {
               </div>
             )}
 
-            <div className="flex space-x-4 pt-4">
-              <Button className="space-x-2">
-                <UserPlus className="h-4 w-4" />
-                <span>Connect</span>
-              </Button>
+            <div className="flex space-x-4 pt-4 border-t">
+              {getConnectionStatus(userProfile._id) === 'connected' ? (
+                <Button variant="outline" className="space-x-2 bg-green-50 text-green-700 hover:bg-green-100 hover:text-green-800 border-green-200">
+                  <UserPlus className="h-4 w-4" />
+                  <span>Connected</span>
+                </Button>
+              ) : getConnectionStatus(userProfile._id) === 'pending' ? (
+                <Button variant="outline" className="space-x-2 bg-yellow-50 text-yellow-700 hover:bg-yellow-100 hover:text-yellow-800 border-yellow-200">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Pending</span>
+                </Button>
+              ) : getConnectionStatus(userProfile._id) === 'received' ? (
+                <Button className="space-x-2 bg-blue-600 hover:bg-blue-700">
+                  <UserPlus className="h-4 w-4" />
+                  <span>Accept Request</span>
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => handleConnect(userProfile._id)}
+                  className="space-x-2"
+                  disabled={isConnecting}
+                >
+                  {isConnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                  <span>Connect</span>
+                </Button>
+              )}
+
               <Button variant="outline" className="space-x-2">
                 <MessageSquare className="h-4 w-4" />
                 <span>Message</span>
@@ -130,6 +203,29 @@ const UserProfilePage = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* Reviews Section */}
+        <div className="mt-8">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold">Reviews & Testimonials</h2>
+            <Button onClick={() => setShowReviewForm(true)} variant="outline" className="flex items-center gap-2">
+              <Star className="h-4 w-4" />
+              Write a Review
+            </Button>
+          </div>
+
+          {showReviewForm && (
+            <div className="mb-8 animate-in slide-in-from-top duration-300">
+              <ReviewForm
+                userId={id}
+                onReviewAdded={handleReviewAdded}
+                onClose={() => setShowReviewForm(false)}
+              />
+            </div>
+          )}
+
+          <ReviewList userId={id} refreshTrigger={refreshReviews} />
+        </div>
       </div>
     </div>
   );

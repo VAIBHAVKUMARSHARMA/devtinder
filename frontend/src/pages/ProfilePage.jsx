@@ -13,6 +13,7 @@ import { FaLinkedinIn, FaGithub } from 'react-icons/fa';
 import { updateUserProfile, clearError } from '@/store/slices/authSlice';
 import { optimizeBio } from '../services/aiService';
 
+
 const ProfilePage = () => {
   const dispatch = useDispatch();
   const { user, loading, error } = useSelector((state) => state.auth);
@@ -680,6 +681,7 @@ const ProfilePage = () => {
           </CardContent>
         </Card>
       </div>
+
     </div>
   );
 };

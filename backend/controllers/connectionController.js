@@ -36,6 +36,15 @@ const sendConnectionRequest = async (req, res) => {
         } else {
           return res.status(400).json({ success: false, message: 'This user has already sent you a connection request' });
         }
+      } else if (existingConnection.status === 'rejected') {
+        // If previously rejected, reset to pending
+        existingConnection.status = 'pending';
+        // Ensure requester is current user (in case the other person rejected my request earlier, or I rejected theirs?)
+        // If I rejected them, and now I want to connect, I become the requester.
+        existingConnection.requester = req.user._id;
+        existingConnection.recipient = userId;
+        await existingConnection.save();
+        return res.status(200).json({ success: true, message: 'Connection request sent successfully' });
       }
     }
 

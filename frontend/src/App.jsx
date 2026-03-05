@@ -28,13 +28,17 @@ import ChatPage from './pages/ChatPage';
 import UserProfilePage from './pages/UserProfilePage';
 import ProfilePage from './pages/ProfilePage';
 import SearchPage from './pages/SearchPage';
+import ProjectIdeasPage from './pages/ProjectIdeasPage';
+import WorkspacesPage from './pages/WorkspacesPage';
+import WorkspaceBoardPage from './pages/WorkspaceBoardPage';
 
 // Initialize theme from localStorage or system preference
+
 const initializeTheme = () => {
   const savedTheme = localStorage.getItem('theme');
 
   if (savedTheme === 'dark' ||
-      (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
     document.documentElement.classList.add('dark');
   } else {
     document.documentElement.classList.remove('dark');
@@ -70,6 +74,9 @@ const App = () => {
             <Route path="/connections" element={<ConnectionsPage />} />
             <Route path="/requests" element={<RequestsPage />} />
             <Route path="/chat" element={<ChatPage />} />
+            <Route path="/projects" element={<ProjectIdeasPage />} />
+            <Route path="/workspaces" element={<WorkspacesPage />} />
+            <Route path="/workspaces/:id" element={<WorkspaceBoardPage />} />
           </Route>
 
           {/* 404 Route */}

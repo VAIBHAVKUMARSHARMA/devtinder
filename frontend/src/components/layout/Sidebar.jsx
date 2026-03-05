@@ -1,14 +1,14 @@
 import { NavLink } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { useMemo } from "react";
-import { Home, Users, UserPlus, MessageSquare, UserCircle, Search } from "lucide-react";
+import { Home, Users, UserPlus, MessageSquare, UserCircle, Search, Code, Layout } from "lucide-react";
 
 const Sidebar = () => {
   // Safely access state with fallbacks
-  const unreadCounts = useSelector((state) => state.chat?.unreadCounts || {});
+  const unreadCounts = useSelector((state) => state.chat?.unreadCounts) || {};
   const pendingRequests = useSelector(
-    (state) => state.connections?.pendingRequests || []
-  );
+    (state) => state.connections?.pendingRequests
+  ) || [];
 
   const totalUnreadMessages = Object.values(unreadCounts).reduce(
     (a, b) => a + b,
@@ -19,8 +19,11 @@ const Sidebar = () => {
     { to: "/dashboard", icon: Home, label: "Feed" },
     { to: "/search", icon: Search, label: "Search" },
     { to: "/connections", icon: Users, label: "Connections" },
+    { to: "/projects", icon: Code, label: "Project Ideas" },
+    { to: "/workspaces", icon: Layout, label: "Workspaces" },
     {
       to: "/requests",
+
       icon: UserPlus,
       label: "Requests",
       badge: pendingRequests.length,
@@ -42,8 +45,7 @@ const Sidebar = () => {
             key={item.to}
             to={item.to}
             className={({ isActive }) =>
-              `flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${
-                isActive ? "bg-primary/10 text-primary" : "hover:bg-accent"
+              `flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${isActive ? "bg-primary/10 text-primary" : "hover:bg-accent"
               }`
             }
           >
