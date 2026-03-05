@@ -28,9 +28,6 @@ const isAllowedOrigin = (origin) => {
 // Connect to database
 require('./config/database');
 
-require('./config/passport');
-const passport = require('passport');
-
 // Middleware
 app.use(cors({
     origin: (origin, callback) => {
@@ -43,10 +40,8 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(cookieParser());
-app.use(passport.initialize());
 
 // Routes
-app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/connections', require('./routes/connectionRoutes'));
 app.use('/api/messages', require('./routes/messageRoutes'));
