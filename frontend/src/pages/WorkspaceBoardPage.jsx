@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { workspaceService } from "../services/workspaceService";
@@ -17,12 +17,14 @@ import {
     X,
     UserPlus,
     Code,
-    CheckSquare
+    CheckSquare,
+    PenTool
 } from "lucide-react";
 
 import toast from "react-hot-toast";
 import { format } from "date-fns";
 import WorkspaceCodeEditor from "../components/WorkspaceCodeEditor";
+import WorkspaceWhiteboard from "../components/WorkspaceWhiteboard";
 
 const COLUMNS = ["Todo", "In Progress", "Done"];
 
@@ -34,7 +36,7 @@ const WorkspaceBoardPage = () => {
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [draggedTask, setDraggedTask] = useState(null);
-    const [activeTab, setActiveTab] = useState("board"); // 'board' or 'code'
+    const [activeTab, setActiveTab] = useState("board"); // 'board' | 'code' | 'whiteboard'
 
     // Modal state
     const [showTaskModal, setShowTaskModal] = useState(false);
@@ -54,11 +56,7 @@ const WorkspaceBoardPage = () => {
     const [loadingConnections, setLoadingConnections] = useState(false);
     const [invitingUserId, setInvitingUserId] = useState(null);
 
-    useEffect(() => {
-        fetchBoardData();
-    }, [workspaceId]);
-
-    const fetchBoardData = async () => {
+    const fetchBoardData = useCallback(async () => {
         try {
             setLoading(true);
             const [workspaceRes, tasksRes] = await Promise.all([
@@ -72,7 +70,11 @@ const WorkspaceBoardPage = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [workspaceId]);
+
+    useEffect(() => {
+        fetchBoardData();
+    }, [fetchBoardData]);
 
     const handleOpenInviteModal = async () => {
         setShowInviteModal(true);
@@ -299,6 +301,16 @@ const WorkspaceBoardPage = () => {
                         <Code size={16} className="mr-2" />
                         Code
                     </button>
+                    <button
+                        onClick={() => setActiveTab("whiteboard")}
+                        className={`flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === "whiteboard"
+                                ? "bg-background shadow text-foreground"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                    >
+                        <PenTool size={16} className="mr-2" />
+                        Whiteboard
+                    </button>
                 </div>
 
                 <div className="flex items-center space-x-4">
@@ -428,12 +440,19 @@ const WorkspaceBoardPage = () => {
                         ))}
                     </div>
                 </div>
-            ) : (
+            ) : activeTab === "code" ? (
                 <div className="flex-1 w-full relative">
                     <WorkspaceCodeEditor
                         workspaceId={workspace._id}
                         initialCode={workspace.code}
                         initialCodeFiles={workspace.codeFiles}
+                    />
+                </div>
+            ) : (
+                <div className="flex-1 w-full relative">
+                    <WorkspaceWhiteboard
+                        workspaceId={workspace._id}
+                        initialWhiteboardData={workspace.whiteboardData}
                     />
                 </div>
             )}

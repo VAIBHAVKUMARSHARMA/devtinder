@@ -44,5 +44,10 @@ export const workspaceService = {
     saveWorkspaceCode: async (id, payload) => {
         const response = await axiosInstance.put(`/workspaces/${id}/code`, payload);
         return response.data;
+    },
+
+    saveWorkspaceWhiteboard: async (id, payload) => {
+        const response = await axiosInstance.put(`/workspaces/${id}/whiteboard`, payload);
+        return response.data;
     }
 };

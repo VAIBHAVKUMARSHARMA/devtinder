@@ -38,12 +38,289 @@ button {
   border-radius: 8px;
   cursor: pointer;
 }`;
+const DEFAULT_WHITEBOARD_DATA = {
+    nodes: [
+        {
+            id: 'node_idea',
+            title: 'Idea',
+            description: 'Define problem and scope',
+            color: '#2563eb',
+            x: 140,
+            y: 130
+        },
+        {
+            id: 'node_build',
+            title: 'Build',
+            description: 'Implement core features',
+            color: '#16a34a',
+            x: 460,
+            y: 130
+        },
+        {
+            id: 'node_review',
+            title: 'Review',
+            description: 'Test, QA and feedback loop',
+            color: '#ea580c',
+            x: 780,
+            y: 130
+        }
+    ],
+    links: [
+        {
+            id: 'link_idea_build',
+            from: 'node_idea',
+            to: 'node_build'
+        },
+        {
+            id: 'link_build_review',
+            from: 'node_build',
+            to: 'node_review'
+        }
+    ]
+};
 
-const normalizeCodeFiles = (codeFiles, fallbackJs = DEFAULT_JS_CODE) => ({
-    html: typeof codeFiles?.html === 'string' ? codeFiles.html : DEFAULT_HTML_CODE,
-    css: typeof codeFiles?.css === 'string' ? codeFiles.css : DEFAULT_CSS_CODE,
-    js: typeof codeFiles?.js === 'string' ? codeFiles.js : fallbackJs
+const createNodeId = () => `node_${Math.random().toString(36).slice(2, 10)}`;
+const createWhiteboardId = (prefix = 'wb') => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+
+const normalizePath = (path = '') =>
+    String(path)
+        .replace(/\\/g, '/')
+        .replace(/\/{2,}/g, '/')
+        .replace(/^\/+|\/+$/g, '')
+        .trim();
+
+const getNodeName = (path = '') => {
+    const segments = path.split('/');
+    return segments[segments.length - 1] || path;
+};
+
+const sortCodeFiles = (codeFiles = []) =>
+    [...codeFiles].sort((a, b) => {
+        if (a.type !== b.type) {
+            return a.type === 'folder' ? -1 : 1;
+        }
+        return a.path.localeCompare(b.path);
+    });
+
+const dedupeCodeFiles = (codeFiles = []) => {
+    const seen = new Set();
+    const deduped = [];
+
+    codeFiles.forEach((entry) => {
+        const key = `${entry.type}:${entry.path.toLowerCase()}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            deduped.push(entry);
+        }
+    });
+
+    return deduped;
+};
+
+const buildDefaultCodeFiles = (fallbackJs = DEFAULT_JS_CODE) => ([
+    {
+        id: 'file_index_html',
+        type: 'file',
+        path: 'index.html',
+        name: 'index.html',
+        content: DEFAULT_HTML_CODE
+    },
+    {
+        id: 'file_styles_css',
+        type: 'file',
+        path: 'styles.css',
+        name: 'styles.css',
+        content: DEFAULT_CSS_CODE
+    },
+    {
+        id: 'file_script_js',
+        type: 'file',
+        path: 'script.js',
+        name: 'script.js',
+        content:
+            typeof fallbackJs === 'string' && fallbackJs.length > 0
+                ? fallbackJs
+                : DEFAULT_JS_CODE
+    }
+]);
+
+const normalizeArrayCodeFiles = (codeFiles = []) => {
+    const normalized = codeFiles
+        .map((entry) => {
+            if (!entry || typeof entry !== 'object') {
+                return null;
+            }
+
+            const type = entry.type === 'folder' ? 'folder' : 'file';
+            const path = normalizePath(entry.path);
+
+            if (!path) {
+                return null;
+            }
+
+            return {
+                id: typeof entry.id === 'string' && entry.id.trim() ? entry.id : createNodeId(),
+                type,
+                path,
+                name: getNodeName(path),
+                content: type === 'file' && typeof entry.content === 'string' ? entry.content : ''
+            };
+        })
+        .filter(Boolean);
+
+    return sortCodeFiles(dedupeCodeFiles(normalized));
+};
+
+const normalizeLegacyObjectCodeFiles = (codeFiles = {}, fallbackJs = DEFAULT_JS_CODE) => {
+    const hasLegacyHtmlCssJs =
+        typeof codeFiles?.html === 'string' ||
+        typeof codeFiles?.css === 'string' ||
+        typeof codeFiles?.js === 'string';
+
+    if (hasLegacyHtmlCssJs) {
+        return sortCodeFiles(
+            buildDefaultCodeFiles(
+                typeof codeFiles?.js === 'string' ? codeFiles.js : fallbackJs
+            ).map((entry) => {
+                if (entry.path === 'index.html' && typeof codeFiles?.html === 'string') {
+                    return { ...entry, content: codeFiles.html };
+                }
+                if (entry.path === 'styles.css' && typeof codeFiles?.css === 'string') {
+                    return { ...entry, content: codeFiles.css };
+                }
+                return entry;
+            })
+        );
+    }
+
+    const objectValues = Object.values(codeFiles).filter(
+        (value) => value && typeof value === 'object' && typeof value.path === 'string'
+    );
+
+    if (objectValues.length > 0) {
+        return normalizeArrayCodeFiles(objectValues);
+    }
+
+    return sortCodeFiles(buildDefaultCodeFiles(fallbackJs));
+};
+
+const normalizeCodeFiles = (codeFiles, fallbackJs = DEFAULT_JS_CODE) => {
+    if (Array.isArray(codeFiles)) {
+        const normalized = normalizeArrayCodeFiles(codeFiles);
+        return normalized.length > 0 ? normalized : sortCodeFiles(buildDefaultCodeFiles(fallbackJs));
+    }
+
+    if (codeFiles && typeof codeFiles === 'object') {
+        return normalizeLegacyObjectCodeFiles(codeFiles, fallbackJs);
+    }
+
+    return sortCodeFiles(buildDefaultCodeFiles(fallbackJs));
+};
+
+const getPrimaryCode = (codeFiles = []) => {
+    const jsFile = codeFiles.find(
+        (entry) =>
+            entry.type === 'file' &&
+            typeof entry.path === 'string' &&
+            entry.path.toLowerCase().endsWith('.js')
+    );
+
+    if (jsFile) {
+        return jsFile.content || DEFAULT_JS_CODE;
+    }
+
+    const firstFile = codeFiles.find((entry) => entry.type === 'file');
+    return firstFile?.content || DEFAULT_JS_CODE;
+};
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+const normalizeNodeColor = (color) => {
+    if (typeof color !== 'string') {
+        return '#2563eb';
+    }
+
+    const trimmed = color.trim();
+    return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : '#2563eb';
+};
+
+const buildDefaultWhiteboardData = () => ({
+    nodes: DEFAULT_WHITEBOARD_DATA.nodes.map((node) => ({ ...node })),
+    links: DEFAULT_WHITEBOARD_DATA.links.map((link) => ({ ...link }))
 });
+
+const normalizeWhiteboardData = (whiteboardData) => {
+    const candidateNodes = Array.isArray(whiteboardData?.nodes) ? whiteboardData.nodes : [];
+    const normalizedNodes = candidateNodes
+        .map((node) => {
+            if (!node || typeof node !== 'object') {
+                return null;
+            }
+
+            const id = typeof node.id === 'string' && node.id.trim()
+                ? node.id
+                : createWhiteboardId('node');
+            const title = typeof node.title === 'string' && node.title.trim()
+                ? node.title.trim().slice(0, 120)
+                : 'Untitled Step';
+            const description = typeof node.description === 'string'
+                ? node.description.slice(0, 400)
+                : '';
+            const x = Number.isFinite(Number(node.x)) ? clamp(Number(node.x), 0, 5000) : 120;
+            const y = Number.isFinite(Number(node.y)) ? clamp(Number(node.y), 0, 5000) : 120;
+
+            return {
+                id,
+                title,
+                description,
+                color: normalizeNodeColor(node.color),
+                x,
+                y
+            };
+        })
+        .filter(Boolean);
+
+    const nodes = normalizedNodes.length > 0
+        ? normalizedNodes
+        : buildDefaultWhiteboardData().nodes;
+    const nodeIds = new Set(nodes.map((node) => node.id));
+
+    const candidateLinks = Array.isArray(whiteboardData?.links) ? whiteboardData.links : [];
+    const linkSeen = new Set();
+    const links = candidateLinks
+        .map((link) => {
+            if (!link || typeof link !== 'object') {
+                return null;
+            }
+
+            const from = typeof link.from === 'string' ? link.from : '';
+            const to = typeof link.to === 'string' ? link.to : '';
+
+            if (!from || !to || from === to || !nodeIds.has(from) || !nodeIds.has(to)) {
+                return null;
+            }
+
+            const dedupeKey = `${from}->${to}`;
+            if (linkSeen.has(dedupeKey)) {
+                return null;
+            }
+            linkSeen.add(dedupeKey);
+
+            return {
+                id: typeof link.id === 'string' && link.id.trim()
+                    ? link.id
+                    : createWhiteboardId('link'),
+                from,
+                to
+            };
+        })
+        .filter(Boolean);
+
+    return {
+        nodes,
+        links
+    };
+};
 
 // @desc    Create a new workspace
 // @route   POST /api/workspaces
@@ -127,6 +404,8 @@ exports.getWorkspaceDetails = async (req, res) => {
         }
         const workspacePayload = workspace.toObject();
         workspacePayload.codeFiles = normalizeCodeFiles(workspacePayload.codeFiles, workspacePayload.code);
+        workspacePayload.code = getPrimaryCode(workspacePayload.codeFiles);
+        workspacePayload.whiteboardData = normalizeWhiteboardData(workspacePayload.whiteboardData);
 
         res.status(200).json({
             status: 'success',
@@ -386,12 +665,28 @@ exports.saveWorkspaceCode = async (req, res) => {
         let nextCodeFiles = existingCodeFiles;
 
         if (codeFiles && typeof codeFiles === 'object') {
-            nextCodeFiles = normalizeCodeFiles(codeFiles, existingCodeFiles.js);
+            nextCodeFiles = normalizeCodeFiles(codeFiles, getPrimaryCode(existingCodeFiles));
         } else if (typeof code === 'string') {
-            nextCodeFiles = {
-                ...existingCodeFiles,
-                js: code
-            };
+            const jsFileIndex = existingCodeFiles.findIndex(
+                (entry) => entry.type === 'file' && entry.path.toLowerCase().endsWith('.js')
+            );
+
+            if (jsFileIndex >= 0) {
+                nextCodeFiles = existingCodeFiles.map((entry, index) =>
+                    index === jsFileIndex ? { ...entry, content: code } : entry
+                );
+            } else {
+                nextCodeFiles = sortCodeFiles([
+                    ...existingCodeFiles,
+                    {
+                        id: createNodeId(),
+                        type: 'file',
+                        path: 'script.js',
+                        name: 'script.js',
+                        content: code
+                    }
+                ]);
+            }
         } else {
             return res.status(400).json({
                 status: 'fail',
@@ -399,8 +694,12 @@ exports.saveWorkspaceCode = async (req, res) => {
             });
         }
 
+        if (!nextCodeFiles.some((entry) => entry.type === 'file')) {
+            nextCodeFiles = sortCodeFiles(buildDefaultCodeFiles(workspace.code));
+        }
+
         workspace.codeFiles = nextCodeFiles;
-        workspace.code = nextCodeFiles.js;
+        workspace.code = getPrimaryCode(nextCodeFiles);
         await workspace.save();
 
         res.status(200).json({
@@ -408,6 +707,57 @@ exports.saveWorkspaceCode = async (req, res) => {
             message: 'Code saved successfully',
             data: {
                 codeFiles: nextCodeFiles
+            }
+        });
+    } catch (err) {
+        res.status(400).json({
+            status: 'fail',
+            message: err.message
+        });
+    }
+};
+
+// @desc    Save workspace whiteboard data
+// @route   PUT /api/workspaces/:id/whiteboard
+// @access  Private
+exports.saveWorkspaceWhiteboard = async (req, res) => {
+    try {
+        const { whiteboardData } = req.body;
+        const workspace = await Workspace.findById(req.params.id);
+
+        if (!workspace) {
+            return res.status(404).json({
+                status: 'fail',
+                message: 'Workspace not found'
+            });
+        }
+
+        const isMember = workspace.members.includes(req.user._id);
+        const isOwner = workspace.owner.toString() === req.user._id.toString();
+
+        if (!isMember && !isOwner) {
+            return res.status(403).json({
+                status: 'fail',
+                message: 'You must be a member or owner to save whiteboard'
+            });
+        }
+
+        if (!whiteboardData || typeof whiteboardData !== 'object') {
+            return res.status(400).json({
+                status: 'fail',
+                message: 'Provide valid whiteboardData to save'
+            });
+        }
+
+        const normalizedWhiteboardData = normalizeWhiteboardData(whiteboardData);
+        workspace.whiteboardData = normalizedWhiteboardData;
+        await workspace.save();
+
+        res.status(200).json({
+            status: 'success',
+            message: 'Whiteboard saved successfully',
+            data: {
+                whiteboardData: normalizedWhiteboardData
             }
         });
     } catch (err) {

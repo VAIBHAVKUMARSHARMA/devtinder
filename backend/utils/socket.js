@@ -141,6 +141,15 @@ const initializeSocket = (server) => {
             });
         });
 
+        socket.on('whiteboard_change', (data) => {
+            const { workspaceId, whiteboardData } = data;
+            socket.to(`workspace_${workspaceId}`).emit('receive_whiteboard_change', {
+                workspaceId,
+                whiteboardData,
+                senderId: socket.id
+            });
+        });
+
         socket.on("disconnect", () => {
             console.log(`User disconnected: ${socket.id}`);
         });

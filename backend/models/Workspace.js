@@ -37,6 +37,47 @@ button {
   cursor: pointer;
 }`;
 
+const DEFAULT_WHITEBOARD_DATA = {
+    nodes: [
+        {
+            id: 'node_idea',
+            title: 'Idea',
+            description: 'Define problem and scope',
+            color: '#2563eb',
+            x: 140,
+            y: 130
+        },
+        {
+            id: 'node_build',
+            title: 'Build',
+            description: 'Implement core features',
+            color: '#16a34a',
+            x: 460,
+            y: 130
+        },
+        {
+            id: 'node_review',
+            title: 'Review',
+            description: 'Test, QA and feedback loop',
+            color: '#ea580c',
+            x: 780,
+            y: 130
+        }
+    ],
+    links: [
+        {
+            id: 'link_idea_build',
+            from: 'node_idea',
+            to: 'node_build'
+        },
+        {
+            id: 'link_build_review',
+            from: 'node_build',
+            to: 'node_review'
+        }
+    ]
+};
+
 const workspaceSchema = new mongoose.Schema({
     name: {
         type: String,
@@ -67,18 +108,37 @@ const workspaceSchema = new mongoose.Schema({
         default: DEFAULT_JS_CODE
     },
     codeFiles: {
-        html: {
-            type: String,
-            default: DEFAULT_HTML_CODE
-        },
-        css: {
-            type: String,
-            default: DEFAULT_CSS_CODE
-        },
-        js: {
-            type: String,
-            default: DEFAULT_JS_CODE
-        }
+        type: mongoose.Schema.Types.Mixed,
+        default: () => ([
+            {
+                id: 'file_index_html',
+                type: 'file',
+                path: 'index.html',
+                name: 'index.html',
+                content: DEFAULT_HTML_CODE
+            },
+            {
+                id: 'file_styles_css',
+                type: 'file',
+                path: 'styles.css',
+                name: 'styles.css',
+                content: DEFAULT_CSS_CODE
+            },
+            {
+                id: 'file_script_js',
+                type: 'file',
+                path: 'script.js',
+                name: 'script.js',
+                content: DEFAULT_JS_CODE
+            }
+        ])
+    },
+    whiteboardData: {
+        type: mongoose.Schema.Types.Mixed,
+        default: () => ({
+            nodes: DEFAULT_WHITEBOARD_DATA.nodes.map((node) => ({ ...node })),
+            links: DEFAULT_WHITEBOARD_DATA.links.map((link) => ({ ...link }))
+        })
     }
 }, { timestamps: true });
 

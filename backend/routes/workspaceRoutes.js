@@ -8,7 +8,8 @@ const {
     acceptInvitation,
     rejectInvitation,
     deleteWorkspace,
-    saveWorkspaceCode
+    saveWorkspaceCode,
+    saveWorkspaceWhiteboard
 } = require('../controllers/workspaceController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -38,5 +39,8 @@ router.route('/:id/reject')
 
 router.route('/:id/code')
     .put(saveWorkspaceCode);
+
+router.route('/:id/whiteboard')
+    .put(saveWorkspaceWhiteboard);
 
 module.exports = router;
