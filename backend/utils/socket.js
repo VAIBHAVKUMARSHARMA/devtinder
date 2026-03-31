@@ -14,6 +14,8 @@ const getAllowedOrigins = () => {
         .filter(Boolean);
 };
 
+const workspaceUsersMap = new Map(); // Map<workspaceId, Map<socketId, user>>
+
 const initializeSocket = (server) => {
     const allowedOrigins = getAllowedOrigins();
     const io = socket(server, {
@@ -126,9 +128,40 @@ const initializeSocket = (server) => {
         });
 
         // Workspace collaborative code editor events
-        socket.on('join_workspace', (workspaceId) => {
+        socket.on('join_workspace', (data) => {
+            // Backward compatibility for old calls sending just workspaceId
+            const workspaceId = typeof data === "string" ? data : data.workspaceId;
+            const user = typeof data === "object" ? data.user : null;
+
             socket.join(`workspace_${workspaceId}`);
             console.log(`User ${socket.id} joined workspace room: workspace_${workspaceId}`);
+
+            if (user) {
+                if (!workspaceUsersMap.has(workspaceId)) {
+                    workspaceUsersMap.set(workspaceId, new Map());
+                }
+                const usersMap = workspaceUsersMap.get(workspaceId);
+                // Also track the active file if needed later
+                usersMap.set(socket.id, { ...user, activeFile: null });
+
+                // Broadcast updated user list
+                io.to(`workspace_${workspaceId}`).emit("workspace_users",
+                    Array.from(usersMap.values())
+                );
+            }
+        });
+
+        socket.on('active_file_change', ({ workspaceId, userId, filePath }) => {
+            if (workspaceUsersMap.has(workspaceId)) {
+                const usersMap = workspaceUsersMap.get(workspaceId);
+                if (usersMap.has(socket.id)) {
+                    const userData = usersMap.get(socket.id);
+                    userData.activeFile = filePath;
+                    io.to(`workspace_${workspaceId}`).emit("workspace_users",
+                        Array.from(usersMap.values())
+                    );
+                }
+            }
         });
 
         socket.on('code_change', (data) => {
@@ -150,8 +183,30 @@ const initializeSocket = (server) => {
             });
         });
 
+        socket.on('draft_saved', (data) => {
+            const { workspaceId, user } = data;
+            socket.to(`workspace_${workspaceId}`).emit('receive_draft_saved', {
+                user,
+                workspaceId
+            });
+        });
+
         socket.on("disconnect", () => {
             console.log(`User disconnected: ${socket.id}`);
+
+            // Remove user from all workspace presence maps
+            for (const [workspaceId, usersMap] of workspaceUsersMap.entries()) {
+                if (usersMap.has(socket.id)) {
+                    usersMap.delete(socket.id);
+                    io.to(`workspace_${workspaceId}`).emit("workspace_users",
+                        Array.from(usersMap.values())
+                    );
+
+                    if (usersMap.size === 0) {
+                        workspaceUsersMap.delete(workspaceId);
+                    }
+                }
+            }
         });
     });
 

@@ -10,11 +10,19 @@ import {
     Save,
     TerminalSquare,
     Trash2,
+    Pencil,
+    MoreVertical,
+    FileCode,
+    Users,
+    ChevronLeft,
+    ChevronRight,
+    RotateCw
 } from "lucide-react";
 import { io } from "socket.io-client";
 import { SOCKET_BASE_URL } from "@/lib/runtimeConfig";
 import { workspaceService } from "../services/workspaceService";
 import toast from "react-hot-toast";
+import DraftDiffViewer from "../components/DraftDiffViewer";
 
 const DEFAULT_JS_CODE = ``;
 const WEB_PREVIEW_EXTENSIONS = new Set(["html", "htm", "css", "js", "mjs", "cjs"]);
@@ -265,13 +273,20 @@ const extractPreviewBodyContent = (htmlContent = "") => {
 const hasReactPreviewProject = (files = []) =>
     files.some((entry) => entry.type === "file" && REACT_PREVIEW_EXTENSIONS.has(getFileExtension(entry.path)));
 
-const buildPreviewDocument = (codeFiles) => {
+const buildPreviewDocument = (codeFiles, entryPath = "") => {
     const files = codeFiles.filter((entry) => entry.type === "file");
     const hasReactFiles = files.some((entry) => REACT_PREVIEW_EXTENSIONS.has(getFileExtension(entry.path)));
-    const htmlFile = files.find((entry) => {
-        const extension = getFileExtension(entry.path);
-        return extension === "html" || extension === "htm";
-    });
+
+    let htmlFile = null;
+    if (entryPath) {
+        htmlFile = files.find(f => f.path.toLowerCase() === entryPath.toLowerCase());
+    }
+    if (!htmlFile) {
+        htmlFile = files.find((entry) => {
+            const extension = getFileExtension(entry.path);
+            return extension === "html" || extension === "htm";
+        });
+    }
 
     if (hasReactFiles) {
         const cssContent = files
@@ -568,6 +583,17 @@ const buildPreviewDocument = (codeFiles) => {
           const reason = event.reason?.message || String(event.reason || "Unhandled promise rejection");
           send("runtime-error", { message: reason });
         });
+
+        document.addEventListener("click", (event) => {
+          const anchor = event.target.closest("a");
+          if (anchor && anchor.getAttribute("href")) {
+            const href = anchor.getAttribute("href");
+            if (!/^(?:[a-z]+:)?\\/\\//i.test(href) && !href.startsWith("#") && !href.startsWith("mailto:")) {
+              event.preventDefault();
+              send("navigate", { path: href });
+            }
+          }
+        });
       })();
     </script>
     <script>${safeJs}</script>
@@ -757,6 +783,7 @@ const WorkspaceCodeEditor = ({
     initialCode,
     initialCodeFiles,
     currentUserId,
+    currentUser,
     currentUserDraft,
     draftSummary = [],
     onWorkspaceRefresh,
@@ -792,6 +819,11 @@ const WorkspaceCodeEditor = ({
     const [consoleLines, setConsoleLines] = useState([]);
     const [runtimeError, setRuntimeError] = useState("");
     const [expandedFolders, setExpandedFolders] = useState({});
+    const [activeUsers, setActiveUsers] = useState([]);
+    const [draggedNode, setDraggedNode] = useState(null);
+    const [navHistory, setNavHistory] = useState([]);
+    const [navIndex, setNavIndex] = useState(-1);
+    const [showDiffViewer, setShowDiffViewer] = useState(false);
     const socketRef = useRef(null);
     const iframeRef = useRef(null);
     const isRemoteChange = useRef(false);
@@ -847,17 +879,31 @@ const WorkspaceCodeEditor = ({
     }, [currentCodeFiles]);
 
     useEffect(() => {
-        setPreviewSrcDoc(buildPreviewDocument(editorMode === "draft" ? draftCodeFiles : sharedCodeFiles));
+        // Prevent auto-reloading the preview on every keystroke
+        const filesToPreview = editorMode === "draft" ? draftCodeFiles : sharedCodeFiles;
+        setPreviewSrcDoc(buildPreviewDocument(filesToPreview, activeFile?.path));
         setConsoleLines([]);
         setRuntimeError("");
-    }, [workspaceId, editorMode, draftCodeFiles, sharedCodeFiles]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [workspaceId, editorMode]);
 
     useEffect(() => {
         socketRef.current = io(SOCKET_BASE_URL, {
             withCredentials: true,
         });
 
-        socketRef.current.emit("join_workspace", workspaceId);
+        socketRef.current.emit("join_workspace", { workspaceId, user: currentUser });
+
+        socketRef.current.on("workspace_users", (users) => {
+            setActiveUsers(users);
+        });
+
+        socketRef.current.on("receive_draft_saved", ({ user }) => {
+            if (user && user._id !== currentUserId) {
+                toast(`${user.name} just saved a code draft!`, { icon: '📝' });
+                onWorkspaceRefresh?.();
+            }
+        });
 
         socketRef.current.on("receive_code_change", (data) => {
             if (data.workspaceId !== workspaceId) {
@@ -912,7 +958,18 @@ const WorkspaceCodeEditor = ({
 
             socketRef.current?.disconnect();
         };
-    }, [workspaceId]);
+    }, [workspaceId, currentUser]);
+
+    // Emit active file change
+    useEffect(() => {
+        if (socketRef.current && currentUser && activeFile) {
+            socketRef.current.emit("active_file_change", {
+                workspaceId,
+                userId: currentUser._id,
+                filePath: activeFile.path
+            });
+        }
+    }, [workspaceId, currentUser, activeFile?.path]);
 
     useEffect(() => {
         const onPreviewMessage = (event) => {
@@ -936,6 +993,24 @@ const WorkspaceCodeEditor = ({
             if (payload.type === "runtime-error") {
                 setRuntimeError(payload.payload?.message || "Runtime error");
             }
+
+            if (payload.type === "navigate") {
+                const targetPath = payload.payload?.path;
+                let normalizedTargetPath = targetPath;
+                if (targetPath.startsWith("./")) normalizedTargetPath = targetPath.slice(2);
+
+                const fileToNavigate = currentCodeFiles.find(
+                    f => f.path.toLowerCase() === normalizedTargetPath.toLowerCase() ||
+                        f.path.toLowerCase().endsWith(`/${normalizedTargetPath.toLowerCase()}`)
+                );
+
+                if (fileToNavigate) {
+                    updateCurrentFileSelection(fileToNavigate.id);
+                    setPreviewSrcDoc(buildPreviewDocument(currentCodeFilesRef.current, fileToNavigate.path));
+                } else {
+                    setRuntimeError(`404: Page not found (${targetPath})`);
+                }
+            }
         };
 
         window.addEventListener("message", onPreviewMessage);
@@ -952,13 +1027,72 @@ const WorkspaceCodeEditor = ({
         });
     };
 
+    // Need a ref to get latest codeFiles for message events
+    const currentCodeFilesRef = useRef(currentCodeFiles);
+    useEffect(() => {
+        currentCodeFilesRef.current = currentCodeFiles;
+    }, [currentCodeFiles]);
+
+    const navToFilePathNoHistory = (targetPath) => {
+        const fileToNavigate = currentCodeFilesRef.current.find(
+            f => f.path.toLowerCase() === targetPath.toLowerCase() ||
+                f.path.toLowerCase().endsWith(`/${targetPath.toLowerCase()}`)
+        );
+        if (fileToNavigate) {
+            if (editorMode === "draft") {
+                setDraftActiveFileId(fileToNavigate.id);
+            } else {
+                setSharedActiveFileId(fileToNavigate.id);
+            }
+            setPreviewSrcDoc(buildPreviewDocument(currentCodeFilesRef.current, fileToNavigate.path));
+        }
+    };
+
     const updateCurrentFileSelection = (nextFileId) => {
         if (editorMode === "draft") {
             setDraftActiveFileId(nextFileId);
-            return;
+        } else {
+            setSharedActiveFileId(nextFileId);
         }
 
-        setSharedActiveFileId(nextFileId);
+        const nextFile = currentCodeFilesRef.current.find((entry) => entry.id === nextFileId);
+        if (nextFile) {
+            setNavHistory(prev => {
+                if (prev[navIndex] === nextFile.path) return prev;
+                const newHistory = prev.slice(0, navIndex + 1);
+                newHistory.push(nextFile.path);
+                setNavIndex(newHistory.length - 1);
+                return newHistory;
+            });
+        }
+    };
+
+    const handleGoBack = () => {
+        if (navIndex > 0) {
+            const prevPath = navHistory[navIndex - 1];
+            setNavIndex(navIndex - 1);
+            navToFilePathNoHistory(prevPath);
+        }
+    };
+
+    const handleGoForward = () => {
+        if (navIndex < navHistory.length - 1) {
+            const nextPath = navHistory[navIndex + 1];
+            setNavIndex(navIndex + 1);
+            navToFilePathNoHistory(nextPath);
+        }
+    };
+
+    const handleRefreshPreview = () => {
+        if (activeFile) {
+            setPreviewSrcDoc(buildPreviewDocument(currentCodeFiles, activeFile.path));
+            // Force recreation of iframe contents to give a "refresh" effect
+            setTimeout(() => {
+                if (iframeRef.current) {
+                    iframeRef.current.srcdoc = iframeRef.current.srcdoc;
+                }
+            }, 10);
+        }
     };
 
     const applyCodeFilesUpdate = (nextCodeFiles, nextFileId = null) => {
@@ -1152,6 +1286,113 @@ const WorkspaceCodeEditor = ({
         toast.success(`${currentModeLabel} entry deleted`);
     };
 
+    const handleDragStart = (e, node) => {
+        e.stopPropagation();
+        setDraggedNode(node);
+        e.dataTransfer.effectAllowed = "move";
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "move";
+    };
+
+    const handleDrop = (e, targetFolderNode) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (!draggedNode) return;
+
+        const targetPath = targetFolderNode ? targetFolderNode.path : "";
+
+        // Prevent moving a folder into itself or its own children
+        if (draggedNode.type === "folder" && targetPath.startsWith(draggedNode.path)) {
+            setDraggedNode(null);
+            return;
+        }
+
+        // Prevent moving to the exact same directory
+        const draggedParent = getParentPath(draggedNode.path);
+        if (draggedParent === targetPath) {
+            setDraggedNode(null);
+            return;
+        }
+
+        const newPath = buildChildPath(targetPath, getNodeName(draggedNode.path));
+
+        const exists = currentCodeFiles.some(
+            (node) => node.path.toLowerCase() === newPath.toLowerCase() && node.id !== draggedNode.id
+        );
+
+        if (exists) {
+            toast.error("An entry with this name already exists in the destination");
+            setDraggedNode(null);
+            return;
+        }
+
+        const oldPrefix = `${draggedNode.path}/`;
+        const newPrefix = `${newPath}/`;
+
+        const next = currentCodeFiles.map((node) => {
+            if (node.id === draggedNode.id) {
+                return { ...node, path: newPath };
+            }
+            if (draggedNode.type === "folder" && node.path.startsWith(oldPrefix)) {
+                return {
+                    ...node,
+                    path: newPrefix + node.path.slice(oldPrefix.length),
+                };
+            }
+            return node;
+        });
+
+        expandFolderPath(targetPath);
+        applyCodeFilesUpdate(sortCodeFiles(next));
+        toast.success(`Moved ${getNodeName(draggedNode.path)} to ${targetPath || 'root'}`);
+        setDraggedNode(null);
+    };
+
+    const handleRenameEntry = (entry) => {
+        const isFolder = entry.type === "folder";
+        const newName = window.prompt(`Enter new name for ${isFolder ? "folder" : "file"} "${entry.name}"`, entry.name);
+
+        if (!newName || newName === entry.name) {
+            return;
+        }
+
+        const parentPath = getParentPath(entry.path);
+        const newPath = buildChildPath(parentPath, newName);
+
+        const exists = currentCodeFiles.some(
+            (node) => node.path.toLowerCase() === newPath.toLowerCase() && node.id !== entry.id
+        );
+
+        if (exists) {
+            toast.error("File or folder with this name already exists");
+            return;
+        }
+
+        const oldPrefix = `${entry.path}/`;
+        const newPrefix = `${newPath}/`;
+
+        const next = currentCodeFiles.map((node) => {
+            if (node.id === entry.id) {
+                return { ...node, name: newName, path: newPath };
+            }
+            if (isFolder && node.path.startsWith(oldPrefix)) {
+                return {
+                    ...node,
+                    path: newPrefix + node.path.slice(oldPrefix.length),
+                };
+            }
+            return node;
+        });
+
+        applyCodeFilesUpdate(sortCodeFiles(next));
+        toast.success(`${currentModeLabel} entry renamed to ${newName}`);
+    };
+
     const handleRunCode = async () => {
         if (!activeFile) {
             toast.error("Open a file to run");
@@ -1162,7 +1403,7 @@ const WorkspaceCodeEditor = ({
         setRuntimeError("");
 
         if (canUseBrowserPreview(currentCodeFiles, activeFile)) {
-            setPreviewSrcDoc(buildPreviewDocument(currentCodeFiles));
+            setPreviewSrcDoc(buildPreviewDocument(currentCodeFiles, activeFile.path));
             return;
         }
 
@@ -1208,6 +1449,12 @@ const WorkspaceCodeEditor = ({
             setSavingDraft(true);
             await workspaceService.saveWorkspaceCodeDraft(workspaceId, { codeFiles: draftCodeFiles });
             await onWorkspaceRefresh?.();
+
+            socketRef.current?.emit("draft_saved", {
+                workspaceId,
+                user: { _id: currentUser._id, name: currentUser.name }
+            });
+
             toast.success("Your draft was saved");
         } catch (error) {
             toast.error(error.response?.data?.message || "Failed to save your draft");
@@ -1247,7 +1494,16 @@ const WorkspaceCodeEditor = ({
         try {
             setCombiningDrafts(true);
             const response = await workspaceService.combineWorkspaceDrafts(workspaceId);
-            const conflicts = response?.data?.conflicts || [];
+            const conflicts = response?.data?.data?.conflicts || [];
+            const newCodeFiles = response?.data?.data?.codeFiles || [];
+            const newCode = response?.data?.data?.code || "";
+
+            // Broadcast the newly merged data instantly
+            socketRef.current?.emit("code_change", {
+                workspaceId,
+                code: newCode,
+                codeFiles: newCodeFiles
+            });
 
             await onWorkspaceRefresh?.();
 
@@ -1286,8 +1542,16 @@ const WorkspaceCodeEditor = ({
                 };
 
                 return (
-                    <div key={`${editorMode}-${node.path || node.id}`}>
-                        <div className="group flex items-center pr-2 hover:bg-slate-900/70">
+                    <div
+                        key={`${editorMode}-${node.path || node.id}`}
+                        onDragOver={handleDragOver}
+                        onDrop={(e) => handleDrop(e, folderEntry)}
+                    >
+                        <div
+                            className={`group flex items-center pr-2 ${draggedNode?.id === node.id ? 'opacity-50' : 'hover:bg-slate-900/70'}`}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, folderEntry)}
+                        >
                             <button
                                 type="button"
                                 onClick={() => toggleFolder(node.path)}
@@ -1317,6 +1581,14 @@ const WorkspaceCodeEditor = ({
                             </button>
                             <button
                                 type="button"
+                                onClick={() => handleRenameEntry(folderEntry)}
+                                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-white p-1 rounded transition-opacity"
+                                title="Rename"
+                            >
+                                <Pencil size={13} />
+                            </button>
+                            <button
+                                type="button"
                                 onClick={() => handleDeleteEntry(folderEntry)}
                                 className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-300 p-1 rounded transition-opacity"
                                 title="Delete"
@@ -1335,7 +1607,9 @@ const WorkspaceCodeEditor = ({
             return (
                 <div
                     key={`${editorMode}-${node.entry.id}`}
-                    className={`group flex items-center pr-2 ${isActive ? "bg-slate-800" : "hover:bg-slate-900/70"}`}
+                    className={`group flex items-center pr-2 ${isActive ? "bg-slate-800" : "hover:bg-slate-900/70"} ${draggedNode?.id === node.entry.id ? 'opacity-50' : ''}`}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, node.entry)}
                 >
                     <button
                         type="button"
@@ -1350,6 +1624,14 @@ const WorkspaceCodeEditor = ({
                         <span className="w-3 text-slate-500" />
                         <FileCode2 size={14} />
                         <span className="truncate">{node.entry.name}</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleRenameEntry(node.entry)}
+                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-white p-1 rounded transition-opacity"
+                        title="Rename"
+                    >
+                        <Pencil size={13} />
                     </button>
                     <button
                         type="button"
@@ -1372,22 +1654,20 @@ const WorkspaceCodeEditor = ({
                             <button
                                 type="button"
                                 onClick={() => setEditorMode("shared")}
-                                className={`px-3 py-1.5 rounded text-sm transition-colors ${
-                                    editorMode === "shared"
-                                        ? "bg-slate-100 text-slate-950"
-                                        : "text-slate-300 hover:text-white"
-                                }`}
+                                className={`px-3 py-1.5 rounded text-sm transition-colors ${editorMode === "shared"
+                                    ? "bg-slate-100 text-slate-950"
+                                    : "text-slate-300 hover:text-white"
+                                    }`}
                             >
                                 Shared Output
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setEditorMode("draft")}
-                                className={`px-3 py-1.5 rounded text-sm transition-colors ${
-                                    editorMode === "draft"
-                                        ? "bg-amber-300 text-slate-950"
-                                        : "text-slate-300 hover:text-white"
-                                }`}
+                                className={`px-3 py-1.5 rounded text-sm transition-colors ${editorMode === "draft"
+                                    ? "bg-amber-300 text-slate-950"
+                                    : "text-slate-300 hover:text-white"
+                                    }`}
                             >
                                 My Draft
                             </button>
@@ -1460,12 +1740,23 @@ const WorkspaceCodeEditor = ({
 
                         <button
                             type="button"
-                            onClick={handleCombineDrafts}
+                            onClick={() => setShowDiffViewer(true)}
                             disabled={combiningDrafts || draftSummary.length === 0}
                             className="text-sm bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-3 py-1.5 rounded disabled:opacity-50 transition-colors"
                         >
                             {combiningDrafts ? "Combining..." : "Combine Drafts"}
                         </button>
+                    </div>
+
+                    <div className="flex items-center space-x-1 pl-3 ml-2 border-l border-slate-700">
+                        {activeUsers.map(u => (
+                            <img
+                                key={u._id}
+                                src={u.profilePicture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u._id}`}
+                                className="w-7 h-7 rounded-full border-2 border-[#111827] relative hover:z-20 transition-transform hover:scale-110"
+                                title={`${u.name} ${u.activeFile ? `(Editing: ${getNodeName(u.activeFile)})` : '(Idle)'}`}
+                            />
+                        ))}
                     </div>
                 </div>
 
@@ -1482,11 +1773,10 @@ const WorkspaceCodeEditor = ({
                         draftSummary.map((draft) => (
                             <span
                                 key={draft.user._id}
-                                className={`px-2 py-1 rounded-full border ${
-                                    draft.user._id === currentUserId
-                                        ? "border-amber-400/50 bg-amber-400/10 text-amber-200"
-                                        : "border-slate-700 bg-slate-800 text-slate-300"
-                                }`}
+                                className={`px-2 py-1 rounded-full border ${draft.user._id === currentUserId
+                                    ? "border-amber-400/50 bg-amber-400/10 text-amber-200"
+                                    : "border-slate-700 bg-slate-800 text-slate-300"
+                                    }`}
                             >
                                 {draft.user.name}
                                 {draft.user._id === currentUserId ? " (you)" : ""}
@@ -1501,7 +1791,11 @@ const WorkspaceCodeEditor = ({
                     <div className="px-3 py-2 border-b border-slate-700 text-xs font-semibold uppercase tracking-wide text-slate-300">
                         Explorer - {currentModeLabel}
                     </div>
-                    <div className="h-full overflow-y-auto py-2">
+                    <div
+                        className="h-full overflow-y-auto py-2"
+                        onDragOver={handleDragOver}
+                        onDrop={(e) => handleDrop(e, null)} // null means root directory
+                    >
                         {explorerTree.length === 0 ? (
                             <div className="px-3 py-4 text-sm text-slate-400 space-y-3">
                                 <p>No files yet. Create a folder or file to start your project.</p>
@@ -1531,7 +1825,19 @@ const WorkspaceCodeEditor = ({
                         {activeFile ? (
                             <div className="h-full flex flex-col">
                                 <div className="px-3 py-2 border-b border-slate-700 bg-[#0b1220] flex items-center justify-between text-xs">
-                                    <p className="text-slate-300 truncate mr-2">{activeFile.path}</p>
+                                    <div className="flex items-center max-w-[60%]">
+                                        <p className="text-slate-300 truncate mr-3">{activeFile.path}</p>
+                                        <div className="flex items-center -space-x-1">
+                                            {activeUsers.filter(u => u.activeFile === activeFile.path && u._id !== currentUserId).map(u => (
+                                                <img
+                                                    key={u._id}
+                                                    src={u.profilePicture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u._id}`}
+                                                    className="w-5 h-5 rounded-full border border-slate-700 opacity-80"
+                                                    title={`${u.name} is editing this file`}
+                                                />
+                                            ))}
+                                        </div>
+                                    </div>
                                     <p className="text-slate-500 uppercase tracking-wide">
                                         {currentModeLabel} - {getLanguageFromPath(activeFile.path)}
                                     </p>
@@ -1560,13 +1866,38 @@ const WorkspaceCodeEditor = ({
                     </div>
 
                     <div className="min-h-0 flex flex-col bg-white">
-                        <div className="px-3 py-2 border-b border-slate-200 shrink-0">
-                            <p className="text-sm font-semibold text-slate-700">Workspace Output</p>
+                        <div className="px-3 py-2 border-b border-slate-200 shrink-0 flex items-center justify-between">
+                            <div className="flex items-center space-x-1">
+                                <button
+                                    onClick={handleGoBack}
+                                    disabled={navIndex <= 0}
+                                    className="p-1 rounded hover:bg-slate-100 disabled:opacity-30 transition-colors"
+                                    title="Go back"
+                                >
+                                    <ChevronLeft size={18} className="text-slate-700" />
+                                </button>
+                                <button
+                                    onClick={handleGoForward}
+                                    disabled={navIndex >= navHistory.length - 1 || navHistory.length === 0}
+                                    className="p-1 rounded hover:bg-slate-100 disabled:opacity-30 transition-colors"
+                                    title="Go forward"
+                                >
+                                    <ChevronRight size={18} className="text-slate-700" />
+                                </button>
+                                <button
+                                    onClick={handleRefreshPreview}
+                                    className="p-1 rounded hover:bg-slate-100 transition-colors mr-2"
+                                    title="Reload preview"
+                                >
+                                    <RotateCw size={16} className="text-slate-700" />
+                                </button>
+                            </div>
+                            <p className="text-sm font-semibold text-slate-500 hidden sm:block">Preview Output</p>
                         </div>
                         <iframe
                             ref={iframeRef}
                             title="workspace-preview"
-                            sandbox="allow-scripts allow-modals"
+                            sandbox="allow-scripts allow-modals allow-same-origin"
                             srcDoc={previewSrcDoc}
                             className="flex-1 w-full bg-white"
                         />
@@ -1577,19 +1908,38 @@ const WorkspaceCodeEditor = ({
                             </div>
                             <div className="flex-1 overflow-y-auto px-3 py-2 text-xs font-mono space-y-1">
                                 {runtimeError ? (
-                                    <p className="text-rose-400">{runtimeError}</p>
-                                ) : null}
-
-                                {consoleLines.length > 0 ? (
-                                    consoleLines.map((line, index) => (
-                                        <p key={`${line}-${index}`}>{line}</p>
+                                    <div className="text-rose-400 p-2 bg-rose-400/10 rounded border border-rose-400/20">
+                                        [Runtime Error] {runtimeError}
+                                    </div>
+                                ) : consoleLines.length > 0 ? (
+                                    consoleLines.map((line, idx) => (
+                                        <div key={idx} className="border-b border-slate-800/50 pb-1 break-all">
+                                            {line}
+                                        </div>
                                     ))
-                                ) : null}
+                                ) : (
+                                    <div className="text-slate-500 p-2 italic">
+                                        No console output
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
+
+            {showDiffViewer && (
+                <DraftDiffViewer
+                    draftFiles={draftCodeFiles}
+                    sharedFiles={sharedCodeFiles}
+                    onClose={() => setShowDiffViewer(false)}
+                    onConfirm={() => {
+                        handleCombineDrafts();
+                        setShowDiffViewer(false);
+                    }}
+                    isMerging={combiningDrafts}
+                />
+            )}
         </div>
     );
 };

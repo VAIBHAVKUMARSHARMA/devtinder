@@ -69,5 +69,20 @@ export const workspaceService = {
     saveWorkspaceWhiteboard: async (id, payload) => {
         const response = await axiosInstance.put(`/workspaces/${id}/whiteboard`, payload);
         return response.data;
+    },
+
+    getWorkspaceSnapshots: async (id) => {
+        const response = await axiosInstance.get(`/workspaces/${id}/snapshots`);
+        return response.data;
+    },
+
+    createWorkspaceSnapshot: async (id, payload) => {
+        const response = await axiosInstance.post(`/workspaces/${id}/snapshots`, payload);
+        return response.data;
+    },
+
+    restoreWorkspaceSnapshot: async (id, snapshotId) => {
+        const response = await axiosInstance.post(`/workspaces/${id}/snapshots/${snapshotId}/restore`);
+        return response.data;
     }
 };

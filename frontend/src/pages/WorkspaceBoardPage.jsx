@@ -25,6 +25,8 @@ import toast from "react-hot-toast";
 import { format } from "date-fns";
 import WorkspaceCodeEditor from "../components/WorkspaceCodeEditor";
 import WorkspaceWhiteboard from "../components/WorkspaceWhiteboard";
+import WorkspaceHistory from "../components/WorkspaceHistory";
+import { History } from "lucide-react";
 
 const COLUMNS = ["Todo", "In Progress", "Done"];
 
@@ -284,8 +286,8 @@ const WorkspaceBoardPage = () => {
                     <button
                         onClick={() => setActiveTab("board")}
                         className={`flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === "board"
-                                ? "bg-background shadow text-foreground"
-                                : "text-muted-foreground hover:text-foreground"
+                            ? "bg-background shadow text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
                             }`}
                     >
                         <CheckSquare size={16} className="mr-2" />
@@ -294,8 +296,8 @@ const WorkspaceBoardPage = () => {
                     <button
                         onClick={() => setActiveTab("code")}
                         className={`flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === "code"
-                                ? "bg-background shadow text-foreground"
-                                : "text-muted-foreground hover:text-foreground"
+                            ? "bg-background shadow text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
                             }`}
                     >
                         <Code size={16} className="mr-2" />
@@ -304,12 +306,22 @@ const WorkspaceBoardPage = () => {
                     <button
                         onClick={() => setActiveTab("whiteboard")}
                         className={`flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === "whiteboard"
-                                ? "bg-background shadow text-foreground"
-                                : "text-muted-foreground hover:text-foreground"
+                            ? "bg-background shadow text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
                             }`}
                     >
                         <PenTool size={16} className="mr-2" />
                         Whiteboard
+                    </button>
+                    <button
+                        onClick={() => setActiveTab("history")}
+                        className={`flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === "history"
+                            ? "bg-background shadow text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                            }`}
+                    >
+                        <History size={16} className="mr-2" />
+                        Snapshots
                     </button>
                 </div>
 
@@ -447,6 +459,7 @@ const WorkspaceBoardPage = () => {
                         initialCode={workspace.code}
                         initialCodeFiles={workspace.codeFiles}
                         currentUserId={user?._id}
+                        currentUser={user}
                         currentUserDraft={workspace.currentUserDraft}
                         draftSummary={workspace.codeDraftSummary}
                         onWorkspaceRefresh={fetchBoardData}

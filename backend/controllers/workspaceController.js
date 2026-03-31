@@ -1,4 +1,5 @@
 const Workspace = require('../models/Workspace');
+const WorkspaceSnapshot = require('../models/WorkspaceSnapshot');
 const User = require('../models/User');
 const Task = require('../models/Task');
 const { runWorkspaceCodeFiles } = require('../utils/workspaceCodeRunner');
@@ -1209,6 +1210,157 @@ exports.saveWorkspaceWhiteboard = async (req, res) => {
             message: 'Whiteboard saved successfully',
             data: {
                 whiteboardData: normalizedWhiteboardData
+            }
+        });
+    } catch (err) {
+        res.status(400).json({
+            status: 'fail',
+            message: err.message
+        });
+    }
+};
+
+// @desc    Create a new workspace snapshot
+// @route   POST /api/workspaces/:id/snapshots
+// @access  Private
+exports.createSnapshot = async (req, res) => {
+    try {
+        const { name, description } = req.body;
+        const workspace = await Workspace.findById(req.params.id);
+
+        if (!workspace) {
+            return res.status(404).json({
+                status: 'fail',
+                message: 'Workspace not found'
+            });
+        }
+
+        const isMember = isWorkspaceMember(workspace, req.user._id);
+        const isOwner = workspace.owner.toString() === req.user._id.toString();
+
+        if (!isMember && !isOwner) {
+            return res.status(403).json({
+                status: 'fail',
+                message: 'You must be a member or owner to create a snapshot'
+            });
+        }
+
+        const snapshot = await WorkspaceSnapshot.create({
+            workspaceId: workspace._id,
+            name: name || `Snapshot ${new Date().toLocaleString()}`,
+            description: description || '',
+            codeFiles: workspace.codeFiles,
+            whiteboardData: workspace.whiteboardData,
+            createdBy: req.user._id
+        });
+
+        res.status(201).json({
+            status: 'success',
+            data: {
+                snapshot
+            }
+        });
+    } catch (err) {
+        res.status(400).json({
+            status: 'fail',
+            message: err.message
+        });
+    }
+};
+
+// @desc    Get all snapshots for a workspace
+// @route   GET /api/workspaces/:id/snapshots
+// @access  Private
+exports.getSnapshots = async (req, res) => {
+    try {
+        const workspace = await Workspace.findById(req.params.id);
+
+        if (!workspace) {
+            return res.status(404).json({
+                status: 'fail',
+                message: 'Workspace not found'
+            });
+        }
+
+        const isMember = isWorkspaceMember(workspace, req.user._id);
+        const isOwner = workspace.owner.toString() === req.user._id.toString();
+
+        if (!isMember && !isOwner) {
+            return res.status(403).json({
+                status: 'fail',
+                message: 'You must be a member or owner to view snapshots'
+            });
+        }
+
+        const snapshots = await WorkspaceSnapshot.find({ workspaceId: workspace._id })
+            .sort({ createdAt: -1 })
+            .select('-codeFiles -whiteboardData')
+            .populate('createdBy', 'name profilePicture');
+
+        res.status(200).json({
+            status: 'success',
+            results: snapshots.length,
+            data: {
+                snapshots
+            }
+        });
+    } catch (err) {
+        res.status(400).json({
+            status: 'fail',
+            message: err.message
+        });
+    }
+};
+
+// @desc    Restore workspace from a snapshot
+// @route   POST /api/workspaces/:id/snapshots/:snapshotId/restore
+// @access  Private
+exports.restoreSnapshot = async (req, res) => {
+    try {
+        const workspace = await Workspace.findById(req.params.id);
+
+        if (!workspace) {
+            return res.status(404).json({
+                status: 'fail',
+                message: 'Workspace not found'
+            });
+        }
+
+        const isMember = isWorkspaceMember(workspace, req.user._id);
+        const isOwner = workspace.owner.toString() === req.user._id.toString();
+
+        if (!isMember && !isOwner) {
+            return res.status(403).json({
+                status: 'fail',
+                message: 'You must be a member or owner to restore a snapshot'
+            });
+        }
+
+        const snapshot = await WorkspaceSnapshot.findOne({
+            _id: req.params.snapshotId,
+            workspaceId: workspace._id
+        });
+
+        if (!snapshot) {
+            return res.status(404).json({
+                status: 'fail',
+                message: 'Snapshot not found'
+            });
+        }
+
+        workspace.codeFiles = snapshot.codeFiles;
+        workspace.code = getPrimaryCode(snapshot.codeFiles);
+        workspace.whiteboardData = snapshot.whiteboardData;
+
+        await workspace.save();
+
+        res.status(200).json({
+            status: 'success',
+            message: `Workspace restored to snapshot: ${snapshot.name}`,
+            data: {
+                codeFiles: workspace.codeFiles,
+                code: workspace.code,
+                whiteboardData: workspace.whiteboardData
             }
         });
     } catch (err) {

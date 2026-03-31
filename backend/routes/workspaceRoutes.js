@@ -13,7 +13,10 @@ const {
     discardWorkspaceCodeDraft,
     combineWorkspaceDrafts,
     runWorkspaceCode,
-    saveWorkspaceWhiteboard
+    saveWorkspaceWhiteboard,
+    createSnapshot,
+    getSnapshots,
+    restoreSnapshot
 } = require('../controllers/workspaceController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -56,5 +59,12 @@ router.route('/:id/code')
 
 router.route('/:id/whiteboard')
     .put(saveWorkspaceWhiteboard);
+
+router.route('/:id/snapshots')
+    .get(getSnapshots)
+    .post(createSnapshot);
+
+router.route('/:id/snapshots/:snapshotId/restore')
+    .post(restoreSnapshot);
 
 module.exports = router;
