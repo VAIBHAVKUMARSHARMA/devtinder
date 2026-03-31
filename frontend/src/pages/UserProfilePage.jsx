@@ -44,12 +44,8 @@ const UserProfilePage = () => {
     }
     setIsConnecting(true);
     try {
-      await dispatch(sendConnectionRequest(userId)).unwrap();
+      await dispatch(sendRequest(userId));
       toast.success("Connection request sent!");
-      // We should ideally reload the auth user to get updated sentRequests
-      // for now simple state update might be tricky without reducer update
-      // but the slice should handle it if attached.
-      window.location.reload(); // Simple brute force update for now to reflect button state
     } catch (err) {
       toast.error(err || "Failed to send request");
     } finally {

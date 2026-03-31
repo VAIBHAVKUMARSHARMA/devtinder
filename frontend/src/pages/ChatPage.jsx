@@ -20,6 +20,7 @@ import { format } from "date-fns";
 import { useLocation } from "react-router-dom";
 import useSwipeGesture from "@/hooks/useSwipeGesture";
 import { getIcebreaker } from "@/services/aiService";
+import { SOCKET_BASE_URL } from "@/lib/runtimeConfig";
 
 const ChatPage = () => {
   const dispatch = useDispatch();
@@ -117,12 +118,11 @@ const ChatPage = () => {
     } catch (error) {
       console.error("Error setting up chat partners:", error);
     }
-  }, [connections, activeChat, selectedChat, userIdFromQuery]);
+  }, [connections, activeChat, selectedChat, userIdFromQuery, dispatch]);
 
   useEffect(() => {
-    const socketUrl = import.meta.env.VITE_SOCKET_URL;
     try {
-      const newSocket = io(socketUrl, {
+      const newSocket = io(SOCKET_BASE_URL, {
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,

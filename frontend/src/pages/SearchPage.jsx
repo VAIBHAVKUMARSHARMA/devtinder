@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useSearchParams, Link, useNavigate } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { Search, Users, MessageSquare, UserPlus, Loader2, X } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,6 @@ import { sendRequest } from '@/store/slices/connectionSlice';
 
 const SearchPage = () => {
   const dispatch = useDispatch();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useSelector((state) => state.auth);
   const { actionSuccess, actionError } = useSelector((state) => state.connections);  // Local state
@@ -32,38 +31,6 @@ const SearchPage = () => {
 
   // Debounce search to avoid too many API calls
   const [debouncedQuery, setDebouncedQuery] = useState(searchQuery);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedQuery(searchQuery);
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [searchQuery]);  // Perform search when debounced query changes
-  useEffect(() => {
-    if (debouncedQuery.trim()) {
-      handleSearch(debouncedQuery, 1);
-      setSearchParams({ q: debouncedQuery });
-    } else {
-      setSearchResults([]);
-      setHasSearched(false);
-      setSearchParams({});
-    }
-  }, [debouncedQuery, setSearchParams]);
-
-  // Handle action feedback
-  useEffect(() => {
-    if (actionSuccess || actionError) {
-      setShowAlert(true);
-      setRequestingUserId(null);
-
-      const timer = setTimeout(() => {
-        setShowAlert(false);
-      }, 3000);
-
-      return () => clearTimeout(timer);
-    }
-  }, [actionSuccess, actionError]);
 
   const handleSearch = useCallback(async (query, page = 1) => {
     if (!query.trim()) return;
@@ -90,15 +57,53 @@ const SearchPage = () => {
     }
   }, [pagination.limit]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);  // Perform search when debounced query changes
+  useEffect(() => {
+    if (debouncedQuery.trim()) {
+      handleSearch(debouncedQuery, 1);
+      setSearchParams({ q: debouncedQuery });
+    } else {
+      setSearchResults([]);
+      setHasSearched(false);
+      setSearchParams({});
+    }
+  }, [debouncedQuery, setSearchParams, handleSearch]);
+
+  // Handle action feedback
+  useEffect(() => {
+    if (actionSuccess || actionError) {
+      setShowAlert(true);
+      setRequestingUserId(null);
+
+      const timer = setTimeout(() => {
+        setShowAlert(false);
+      }, 3000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [actionSuccess, actionError]);
+
   const handleLoadMore = () => {
     if (pagination.page < pagination.pages && !loading) {
       handleSearch(debouncedQuery, pagination.page + 1);
     }
   };
 
-  const handleSendRequest = (userId) => {
+  const handleSendRequest = async (userId) => {
     setRequestingUserId(userId);
-    dispatch(sendRequest(userId));
+    try {
+      await dispatch(sendRequest(userId));
+    } catch {
+      // Connection slice already exposes the failure state for the page alert.
+    } finally {
+      setRequestingUserId(null);
+    }
   };
 
   const hasSentRequest = (userId) => {

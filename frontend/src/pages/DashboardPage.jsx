@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -15,7 +15,6 @@ const DashboardPage = () => {
   const { users, loading, error } = useSelector((state) => state.feed);
   const { actionError, actionSuccess } = useSelector((state) => state.connections);
 
-  const [currentIndex, setCurrentIndex] = useState(0);
   const [lastDirection, setLastDirection] = useState(null);
   const [requestingUserId, setRequestingUserId] = useState(null);
   const [showAlert, setShowAlert] = useState(false);
@@ -59,15 +58,24 @@ const DashboardPage = () => {
 
   const swipe = async (direction, userId) => {
     setLastDirection(direction);
+    let shouldAdvance = true;
 
     if (direction === 'right') {
-      // Send Connect Request
       setRequestingUserId(userId);
-      await dispatch(sendRequest(userId));
-      setRequestingUserId(null);
+      try {
+        await dispatch(sendRequest(userId));
+      } catch {
+        shouldAdvance = false;
+      } finally {
+        setRequestingUserId(null);
+      }
     }
 
-    // Move to next card after delay for animation
+    if (!shouldAdvance) {
+      setLastDirection(null);
+      return;
+    }
+
     setTimeout(() => {
       setFeedUsers((prev) => prev.filter((u) => u._id !== userId));
       setLastDirection(null);
@@ -165,8 +173,13 @@ const DashboardPage = () => {
                 size="icon"
                 className="h-14 w-14 rounded-full bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-lg shadow-green-200 transition-transform hover:scale-110 hover:shadow-xl"
                 onClick={() => swipe('right', currentUserCard._id)}
+                disabled={requestingUserId === currentUserCard._id}
               >
-                <Heart className="w-7 h-7 fill-current" />
+                {requestingUserId === currentUserCard._id ? (
+                  <Loader2 className="w-7 h-7 animate-spin" />
+                ) : (
+                  <Heart className="w-7 h-7 fill-current" />
+                )}
               </Button>
             </div>
           </div>

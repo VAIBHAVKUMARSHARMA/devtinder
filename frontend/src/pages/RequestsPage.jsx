@@ -11,8 +11,7 @@ import toast from 'react-hot-toast';
 
 const RequestsPage = () => {
   const dispatch = useDispatch();
-  const { pendingRequests, loading, error, actionLoading, actionError, actionSuccess } = useSelector((state) => state.connections);
-  console.log('Pending requests:', pendingRequests);
+  const { pendingRequests, loading, error, actionError, actionSuccess } = useSelector((state) => state.connections);
 
   const [processingId, setProcessingId] = useState(null);
   const [showAlert, setShowAlert] = useState(false);
@@ -35,15 +34,12 @@ const RequestsPage = () => {
       if (res.status === 'success' && res.data && res.data.invitations) {
         setWorkspaceInvitations(res.data.invitations);
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to load workspace invitations");
     } finally {
       setLoadingInvitations(false);
     }
   };
-
-  // Log the pending requests for debugging
-  console.log('Pending requests in component:', pendingRequests);
 
   // Show success/error alert when connection action completes
   useEffect(() => {

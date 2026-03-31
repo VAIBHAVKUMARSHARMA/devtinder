@@ -10,8 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const ConnectionsPage = () => {
   const dispatch = useDispatch();
-  const { connections, loading, error, actionLoading, actionError, actionSuccess } = useSelector((state) => state.connections);
-  console.log('Connections:', connections);
+  const { connections, loading, error, actionError, actionSuccess } = useSelector((state) => state.connections);
 
   const [removingId, setRemovingId] = useState(null);
   const [showAlert, setShowAlert] = useState(false);
@@ -24,11 +23,6 @@ const ConnectionsPage = () => {
     dispatch(fetchConnections());
   }, [dispatch, user]);
 
-  
-  console.log('Connections in component:', connections);
-  console.log('Connections length:', connections.length);
-
-  
   useEffect(() => {
     if (actionSuccess || actionError) {
       setShowAlert(true);

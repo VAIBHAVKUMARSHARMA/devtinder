@@ -106,8 +106,10 @@ export const sendRequest = (userId) => async (dispatch) => {
     const response = await connectionService.sendConnectionRequest(userId);
     dispatch(setActionSuccess('Connection request sent successfully'));
     dispatch(getCurrentUser());
+    return response;
   } catch (error) {
     dispatch(setActionError(error));
+    throw error;
   }
 };
 

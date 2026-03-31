@@ -46,6 +46,26 @@ export const workspaceService = {
         return response.data;
     },
 
+    runWorkspaceCode: async (id, payload) => {
+        const response = await axiosInstance.post(`/workspaces/${id}/code/run`, payload);
+        return response.data;
+    },
+
+    saveWorkspaceCodeDraft: async (id, payload) => {
+        const response = await axiosInstance.put(`/workspaces/${id}/code/draft`, payload);
+        return response.data;
+    },
+
+    discardWorkspaceCodeDraft: async (id) => {
+        const response = await axiosInstance.delete(`/workspaces/${id}/code/draft`);
+        return response.data;
+    },
+
+    combineWorkspaceDrafts: async (id) => {
+        const response = await axiosInstance.post(`/workspaces/${id}/code/combine`);
+        return response.data;
+    },
+
     saveWorkspaceWhiteboard: async (id, payload) => {
         const response = await axiosInstance.put(`/workspaces/${id}/whiteboard`, payload);
         return response.data;

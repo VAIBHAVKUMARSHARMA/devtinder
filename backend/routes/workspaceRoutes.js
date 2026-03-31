@@ -9,6 +9,10 @@ const {
     rejectInvitation,
     deleteWorkspace,
     saveWorkspaceCode,
+    saveWorkspaceCodeDraft,
+    discardWorkspaceCodeDraft,
+    combineWorkspaceDrafts,
+    runWorkspaceCode,
     saveWorkspaceWhiteboard
 } = require('../controllers/workspaceController');
 const { protect } = require('../middleware/authMiddleware');
@@ -36,6 +40,16 @@ router.route('/:id/accept')
 
 router.route('/:id/reject')
     .post(rejectInvitation);
+
+router.route('/:id/code/draft')
+    .put(saveWorkspaceCodeDraft)
+    .delete(discardWorkspaceCodeDraft);
+
+router.route('/:id/code/combine')
+    .post(combineWorkspaceDrafts);
+
+router.route('/:id/code/run')
+    .post(runWorkspaceCode);
 
 router.route('/:id/code')
     .put(saveWorkspaceCode);

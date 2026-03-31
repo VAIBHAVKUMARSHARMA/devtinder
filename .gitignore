@@ -56,3 +56,5 @@ Thumbs.db
 
 # Optional: Specific to your project
 # Add any other files/folders specific to your project that shouldn't be tracked
+
+.vercel

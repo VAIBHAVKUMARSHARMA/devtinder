@@ -1,4 +1,3 @@
-import { useSelector } from 'react-redux';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Navbar from '@/components/Navbar';

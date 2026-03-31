@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Code, Users, Search, Zap, Star, Globe, Shield, ArrowRight } from 'lucide-react';
 import Navbar from '@/components/Navbar';
-import { useSelector, useDispatch } from 'react-redux';
+import { useSelector } from 'react-redux';
 import { useEffect } from 'react';
 
 const LandingPage = () => {
@@ -58,7 +58,6 @@ const LandingPage = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      {/* Hero Section */}
       <section className="container py-20 w-full mx-auto">
         <div className="text-center space-y-6 animate-in fade-in duration-700">
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight animate-in slide-in-from-bottom-4 duration-700">
@@ -77,7 +76,6 @@ const LandingPage = () => {
           </div>
         </div>
 
-        {/* Features Section */}
         <div className="grid md:grid-cols-3 gap-8 mt-20 animate-in fade-in duration-700 delay-500">
           {features.map((feature, index) => (
             <div
@@ -92,7 +90,6 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* How It Works Section */}
       <section className="py-20 bg-muted/30">
         <div className="container w-full mx-auto">
           <div className="text-center mb-16 animate-in slide-in-from-bottom-4 duration-700">
@@ -121,7 +118,6 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* Testimonials Section */}
       <section className="py-20">
         <div className="container w-full mx-auto">
           <div className="text-center mb-16 animate-in slide-in-from-bottom-4 duration-700">
@@ -155,7 +151,6 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* CTA Section */}
       <section className="py-20">
         <div className="container w-full mx-auto">
           <div className="text-center p-10 border rounded-lg bg-primary/5 max-w-4xl mx-auto animate-in slide-in-from-bottom-4 duration-700">
@@ -187,7 +182,7 @@ const LandingPage = () => {
             </div>
           </div>
           <div className="text-center text-sm text-muted-foreground mt-8">
-            © {new Date().getFullYear()} DevTinder. All rights reserved.
+            Copyright {new Date().getFullYear()} DevTinder. All rights reserved.
           </div>
         </div>
       </footer>

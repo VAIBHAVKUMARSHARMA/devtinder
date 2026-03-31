@@ -446,6 +446,10 @@ const WorkspaceBoardPage = () => {
                         workspaceId={workspace._id}
                         initialCode={workspace.code}
                         initialCodeFiles={workspace.codeFiles}
+                        currentUserId={user?._id}
+                        currentUserDraft={workspace.currentUserDraft}
+                        draftSummary={workspace.codeDraftSummary}
+                        onWorkspaceRefresh={fetchBoardData}
                     />
                 </div>
             ) : (

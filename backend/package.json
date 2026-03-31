@@ -24,6 +24,7 @@
     "mongoose": "^8.14.1",
     "multer": "^2.0.1",
     "multer-storage-cloudinary": "^4.0.0",
+    "nodemon": "^3.1.14",
     "socket.io": "^4.7.4",
     "validator": "^13.11.0"
   }

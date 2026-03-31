@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Star, User } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Star } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import reviewService from '../services/reviewService';
 
@@ -7,11 +7,7 @@ const ReviewList = ({ userId, refreshTrigger }) => {
     const [reviews, setReviews] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        fetchReviews();
-    }, [userId, refreshTrigger]);
-
-    const fetchReviews = async () => {
+    const fetchReviews = useCallback(async () => {
         try {
             setLoading(true);
             const data = await reviewService.getReviews(userId);
@@ -21,7 +17,11 @@ const ReviewList = ({ userId, refreshTrigger }) => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [userId]);
+
+    useEffect(() => {
+        fetchReviews();
+    }, [fetchReviews, refreshTrigger]);
 
     if (loading) {
         return <div className="text-center py-4 text-muted-foreground">Loading reviews...</div>;

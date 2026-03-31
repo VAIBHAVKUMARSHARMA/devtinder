@@ -1,10 +1,9 @@
 import axios from "axios";
-
-const API_URL = "http://localhost:3000/api/ai";
+import { API_BASE_URL } from "@/lib/runtimeConfig";
 
 // Create axios instance with credentials (cookies)
 const axiosInstance = axios.create({
-    baseURL: API_URL,
+    baseURL: `${API_BASE_URL}/ai`,
     withCredentials: true,
 });
 
