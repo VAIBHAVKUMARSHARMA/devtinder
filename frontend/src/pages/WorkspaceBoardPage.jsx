@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
+import { io } from "socket.io-client";
 import { workspaceService } from "../services/workspaceService";
 import { taskService } from "../services/taskService";
 import connectionService from "../services/connectionService";
+import { SOCKET_BASE_URL } from "@/lib/runtimeConfig";
 import {
     Loader2,
     Plus,
@@ -18,17 +20,59 @@ import {
     UserPlus,
     Code,
     CheckSquare,
-    PenTool
+    PenTool,
+    ShieldCheck
 } from "lucide-react";
 
 import toast from "react-hot-toast";
 import { format } from "date-fns";
 import WorkspaceCodeEditor from "../components/WorkspaceCodeEditor";
 import WorkspaceWhiteboard from "../components/WorkspaceWhiteboard";
-import WorkspaceHistory from "../components/WorkspaceHistory";
-import { History } from "lucide-react";
 
 const COLUMNS = ["Todo", "In Progress", "Done"];
+
+const getWorkspacePresenceTab = (tab) => {
+    if (tab === "code" || tab === "whiteboard") {
+        return tab;
+    }
+
+    return "tasks";
+};
+
+const getWorkspacePresenceTabLabel = (tab) => {
+    if (tab === "code") {
+        return "Code";
+    }
+
+    if (tab === "whiteboard") {
+        return "Whiteboard";
+    }
+
+    return "Tasks";
+};
+
+const getWorkspacePresenceTabClasses = (tab) => {
+    if (tab === "code") {
+        return "border-blue-200 bg-blue-50 text-blue-700";
+    }
+
+    if (tab === "whiteboard") {
+        return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    }
+
+    return "border-amber-200 bg-amber-50 text-amber-700";
+};
+
+const getWorkspacePresenceFileName = (filePath = "") => {
+    const normalizedPath = String(filePath).trim();
+
+    if (!normalizedPath) {
+        return "";
+    }
+
+    const segments = normalizedPath.split("/").filter(Boolean);
+    return segments[segments.length - 1] || normalizedPath;
+};
 
 const WorkspaceBoardPage = () => {
     const { id: workspaceId } = useParams();
@@ -38,7 +82,10 @@ const WorkspaceBoardPage = () => {
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [draggedTask, setDraggedTask] = useState(null);
-    const [activeTab, setActiveTab] = useState("board"); // 'board' | 'code' | 'whiteboard'
+    const [activeTab, setActiveTab] = useState("board");
+    const [hasOpenedWhiteboard, setHasOpenedWhiteboard] = useState(false);
+    const [presenceUsers, setPresenceUsers] = useState([]);
+    const presenceSocketRef = useRef(null);
 
     // Modal state
     const [showTaskModal, setShowTaskModal] = useState(false);
@@ -57,6 +104,40 @@ const WorkspaceBoardPage = () => {
     const [connections, setConnections] = useState([]);
     const [loadingConnections, setLoadingConnections] = useState(false);
     const [invitingUserId, setInvitingUserId] = useState(null);
+    const [showCombineAccessModal, setShowCombineAccessModal] = useState(false);
+    const [updatingCombineAccessFor, setUpdatingCombineAccessFor] = useState(null);
+
+    const presenceUserMap = useMemo(() => {
+        const nextMap = new Map();
+        presenceUsers.forEach((presenceUser) => {
+            if (presenceUser?._id) {
+                nextMap.set(presenceUser._id, presenceUser);
+            }
+        });
+        return nextMap;
+    }, [presenceUsers]);
+
+    const workspaceMembersWithPresence = useMemo(() => {
+        const members = Array.isArray(workspace?.members) ? workspace.members : [];
+        return members.map((member) => {
+            const livePresence = presenceUserMap.get(member._id);
+            const isOwner = workspace?.owner?._id === member._id;
+            const hasCombineAccess =
+                isOwner ||
+                (workspace?.combineDraftManagers || []).some((manager) => manager?._id === member._id);
+
+            return {
+                ...member,
+                isOnline: Boolean(livePresence),
+                activeTab: livePresence?.activeTab || null,
+                activeFile: livePresence?.activeFile || "",
+                isOwner,
+                hasCombineAccess,
+            };
+        });
+    }, [workspace, presenceUserMap]);
+
+    const onlineMemberCount = workspaceMembersWithPresence.filter((member) => member.isOnline).length;
 
     const fetchBoardData = useCallback(async () => {
         try {
@@ -77,6 +158,65 @@ const WorkspaceBoardPage = () => {
     useEffect(() => {
         fetchBoardData();
     }, [fetchBoardData]);
+
+    useEffect(() => {
+        if (activeTab === "whiteboard") {
+            setHasOpenedWhiteboard(true);
+        }
+    }, [activeTab]);
+
+    useEffect(() => {
+        if (!workspaceId || !user?._id) {
+            return undefined;
+        }
+
+        const presenceSocket = io(SOCKET_BASE_URL, {
+            withCredentials: true,
+        });
+
+        presenceSocketRef.current = presenceSocket;
+        presenceSocket.emit("join_workspace", {
+            workspaceId,
+            activeTab: "tasks",
+            user: {
+                _id: user._id,
+                name: user.name,
+                profilePicture: user.profilePicture || "",
+            },
+        });
+
+        presenceSocket.on("workspace_users", (users) => {
+            setPresenceUsers(Array.isArray(users) ? users : []);
+        });
+
+        return () => {
+            setPresenceUsers([]);
+            presenceSocket.disconnect();
+            presenceSocketRef.current = null;
+        };
+    }, [workspaceId, user?._id, user?.name, user?.profilePicture]);
+
+    useEffect(() => {
+        if (!presenceSocketRef.current || !user?._id) {
+            return;
+        }
+
+        presenceSocketRef.current.emit("workspace_tab_change", {
+            workspaceId,
+            activeTab: getWorkspacePresenceTab(activeTab),
+        });
+    }, [workspaceId, activeTab, user?._id]);
+
+    const handlePresenceActiveFileChange = useCallback((filePath) => {
+        if (!presenceSocketRef.current) {
+            return;
+        }
+
+        presenceSocketRef.current.emit("active_file_change", {
+            workspaceId,
+            filePath,
+        });
+    }, [workspaceId]);
 
     const handleOpenInviteModal = async () => {
         setShowInviteModal(true);
@@ -119,6 +259,22 @@ const WorkspaceBoardPage = () => {
             toast.error(error.response?.data?.message || "Failed to add member");
         } finally {
             setInvitingUserId(null);
+        }
+    };
+
+    const handleUpdateCombineAccess = async (memberId, allowed) => {
+        setUpdatingCombineAccessFor(memberId);
+        try {
+            await workspaceService.updateWorkspaceCombineAccess(workspaceId, {
+                userId: memberId,
+                allowed,
+            });
+            await fetchBoardData();
+            toast.success(allowed ? "Combine access granted" : "Combine access removed");
+        } catch (error) {
+            toast.error(error.response?.data?.message || "Failed to update combine access");
+        } finally {
+            setUpdatingCombineAccessFor(null);
         }
     };
 
@@ -313,16 +469,6 @@ const WorkspaceBoardPage = () => {
                         <PenTool size={16} className="mr-2" />
                         Whiteboard
                     </button>
-                    <button
-                        onClick={() => setActiveTab("history")}
-                        className={`flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === "history"
-                            ? "bg-background shadow text-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                            }`}
-                    >
-                        <History size={16} className="mr-2" />
-                        Snapshots
-                    </button>
                 </div>
 
                 <div className="flex items-center space-x-4">
@@ -351,13 +497,23 @@ const WorkspaceBoardPage = () => {
                         </button>
                     </div>
                     {workspace.owner?._id === user?._id && (
-                        <button
-                            onClick={handleDeleteWorkspace}
-                            className="text-destructive hover:bg-destructive/10 p-2 rounded-md transition-colors border border-destructive/20 flex items-center"
-                            title="Delete Workspace"
-                        >
-                            <Trash2 size={18} />
-                        </button>
+                        <>
+                            <button
+                                onClick={() => setShowCombineAccessModal(true)}
+                                className="border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 px-3 py-2 rounded-md transition-colors flex items-center gap-2"
+                                title="Manage combine access"
+                            >
+                                <ShieldCheck size={16} />
+                                Merge Access
+                            </button>
+                            <button
+                                onClick={handleDeleteWorkspace}
+                                className="text-destructive hover:bg-destructive/10 p-2 rounded-md transition-colors border border-destructive/20 flex items-center"
+                                title="Delete Workspace"
+                            >
+                                <Trash2 size={18} />
+                            </button>
+                        </>
                     )}
                     <button
                         onClick={() => openCreateModal()}
@@ -369,8 +525,76 @@ const WorkspaceBoardPage = () => {
                 </div>
             </div>
 
+            <div className="border-b bg-background px-6 py-3 flex flex-wrap items-center gap-3 shrink-0">
+                <div className="flex items-center text-sm font-medium text-foreground">
+                    <Users size={16} className="mr-2 text-primary" />
+                    Online now ({onlineMemberCount}/{workspaceMembersWithPresence.length})
+                </div>
+
+                {workspaceMembersWithPresence.length === 0 ? (
+                    <span className="text-sm text-muted-foreground">
+                        No workspace members found yet.
+                    </span>
+                ) : (
+                    workspaceMembersWithPresence.map((presenceUser, index) => (
+                        <div
+                            key={`${presenceUser._id || "workspace-user"}-${index}`}
+                            className="flex items-center gap-3 rounded-full border bg-card px-3 py-2 shadow-sm"
+                        >
+                            <div className="relative">
+                                <img
+                                    src={presenceUser.profilePicture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${presenceUser._id || index}`}
+                                    alt={presenceUser.name || "Workspace user"}
+                                    className="h-8 w-8 rounded-full object-cover"
+                                />
+                                <span
+                                    className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background ${presenceUser.isOnline ? "bg-emerald-500" : "bg-slate-400"}`}
+                                />
+                            </div>
+
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <p className="text-sm font-medium text-foreground truncate">
+                                        {presenceUser.name || "Developer"}
+                                        {presenceUser._id === user?._id ? " (you)" : ""}
+                                    </p>
+                                    {presenceUser.isOwner ? (
+                                        <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700">
+                                            Owner
+                                        </span>
+                                    ) : null}
+                                    {presenceUser.hasCombineAccess ? (
+                                        <span className="rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[11px] font-semibold text-cyan-700">
+                                            Merge Lead
+                                        </span>
+                                    ) : null}
+                                    {presenceUser.isOnline ? (
+                                        <span
+                                            className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getWorkspacePresenceTabClasses(presenceUser.activeTab)}`}
+                                        >
+                                            {getWorkspacePresenceTabLabel(presenceUser.activeTab)}
+                                        </span>
+                                    ) : (
+                                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                            Offline
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="text-xs text-muted-foreground truncate">
+                                    {presenceUser.isOnline && presenceUser.activeTab === "code" && presenceUser.activeFile
+                                        ? `Editing ${getWorkspacePresenceFileName(presenceUser.activeFile)}`
+                                        : presenceUser.isOnline
+                                            ? `Active in ${getWorkspacePresenceTabLabel(presenceUser.activeTab).toLowerCase()}`
+                                            : "Not active in the workspace right now"}
+                                </p>
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+
             {/* Main Content Area */}
-            {activeTab === "board" ? (
+            {activeTab === "board" && (
                 <div className="flex-1 overflow-x-auto overflow-y-hidden p-6">
                     <div className="flex h-full space-x-6 min-w-max">
                         {COLUMNS.map((columnStatus) => (
@@ -452,7 +676,9 @@ const WorkspaceBoardPage = () => {
                         ))}
                     </div>
                 </div>
-            ) : activeTab === "code" ? (
+            )}
+
+            {activeTab === "code" && (
                 <div className="flex-1 w-full relative">
                     <WorkspaceCodeEditor
                         workspaceId={workspace._id}
@@ -462,15 +688,109 @@ const WorkspaceBoardPage = () => {
                         currentUser={user}
                         currentUserDraft={workspace.currentUserDraft}
                         draftSummary={workspace.codeDraftSummary}
+                        canCombineDrafts={workspace.canCurrentUserCombineDrafts}
+                        presenceUsers={presenceUsers}
+                        onPresenceActiveFileChange={handlePresenceActiveFileChange}
                         onWorkspaceRefresh={fetchBoardData}
                     />
                 </div>
-            ) : (
-                <div className="flex-1 w-full relative">
+            )}
+
+            {hasOpenedWhiteboard && (
+                <div className={`flex-1 w-full relative ${activeTab === "whiteboard" ? "" : "hidden"}`}>
                     <WorkspaceWhiteboard
                         workspaceId={workspace._id}
                         initialWhiteboardData={workspace.whiteboardData}
                     />
+                </div>
+            )}
+
+            {showCombineAccessModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+                    <div className="bg-background rounded-xl shadow-2xl w-full max-w-lg p-6 animate-in zoom-in-95 duration-200 border flex flex-col max-h-[80vh]">
+                        <div className="flex justify-between items-center mb-4 shrink-0">
+                            <div>
+                                <h2 className="text-xl font-bold flex items-center">
+                                    <ShieldCheck size={20} className="mr-2 text-primary" />
+                                    Merge Access
+                                </h2>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    Choose which workspace members are allowed to combine saved drafts into the shared output.
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setShowCombineAccessModal(false)}
+                                className="text-muted-foreground hover:text-foreground hover:bg-secondary p-2 rounded-md transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="overflow-y-auto px-1 py-2 flex-1 thin-scrollbar">
+                            <ul className="space-y-3">
+                                {workspaceMembersWithPresence.map((member) => (
+                                    <li
+                                        key={member._id}
+                                        className="flex items-center justify-between gap-4 rounded-xl border bg-card px-4 py-3"
+                                    >
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="relative">
+                                                <img
+                                                    src={member.profilePicture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${member._id}`}
+                                                    alt={member.name}
+                                                    className="h-10 w-10 rounded-full object-cover"
+                                                />
+                                                <span
+                                                    className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background ${member.isOnline ? "bg-emerald-500" : "bg-slate-400"}`}
+                                                />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <p className="text-sm font-semibold text-foreground truncate">{member.name}</p>
+                                                    {member.isOwner ? (
+                                                        <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700">
+                                                            Owner
+                                                        </span>
+                                                    ) : null}
+                                                    {member.hasCombineAccess ? (
+                                                        <span className="rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[11px] font-semibold text-cyan-700">
+                                                            Merge Lead
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                                <p className="text-xs text-muted-foreground">
+                                                    {member.isOnline
+                                                        ? `Online in ${getWorkspacePresenceTabLabel(member.activeTab).toLowerCase()}`
+                                                        : "Offline"}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {member.isOwner ? (
+                                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                                Owner always has access
+                                            </span>
+                                        ) : (
+                                            <button
+                                                onClick={() => handleUpdateCombineAccess(member._id, !member.hasCombineAccess)}
+                                                disabled={updatingCombineAccessFor === member._id}
+                                                className={`min-w-[122px] rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:opacity-60 ${member.hasCombineAccess
+                                                    ? "border border-slate-300 bg-background text-foreground hover:bg-secondary"
+                                                    : "bg-primary text-primary-foreground hover:bg-primary/90"
+                                                    }`}
+                                            >
+                                                {updatingCombineAccessFor === member._id
+                                                    ? "Saving..."
+                                                    : member.hasCombineAccess
+                                                        ? "Remove Access"
+                                                        : "Grant Access"}
+                                            </button>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
                 </div>
             )}
 

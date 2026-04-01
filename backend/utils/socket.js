@@ -16,6 +16,21 @@ const getAllowedOrigins = () => {
 
 const workspaceUsersMap = new Map(); // Map<workspaceId, Map<socketId, user>>
 
+const getWorkspaceTab = (activeTab) => {
+    if (activeTab === 'code' || activeTab === 'whiteboard') {
+        return activeTab;
+    }
+
+    return 'tasks';
+};
+
+const broadcastWorkspaceUsers = (io, workspaceId) => {
+    const usersMap = workspaceUsersMap.get(workspaceId);
+    const users = usersMap ? Array.from(usersMap.values()) : [];
+
+    io.to(`workspace_${workspaceId}`).emit('workspace_users', users);
+};
+
 const initializeSocket = (server) => {
     const allowedOrigins = getAllowedOrigins();
     const io = socket(server, {
@@ -132,6 +147,7 @@ const initializeSocket = (server) => {
             // Backward compatibility for old calls sending just workspaceId
             const workspaceId = typeof data === "string" ? data : data.workspaceId;
             const user = typeof data === "object" ? data.user : null;
+            const activeTab = typeof data === "object" ? data.activeTab : null;
 
             socket.join(`workspace_${workspaceId}`);
             console.log(`User ${socket.id} joined workspace room: workspace_${workspaceId}`);
@@ -142,24 +158,42 @@ const initializeSocket = (server) => {
                 }
                 const usersMap = workspaceUsersMap.get(workspaceId);
                 // Also track the active file if needed later
-                usersMap.set(socket.id, { ...user, activeFile: null });
+                usersMap.set(socket.id, {
+                    ...user,
+                    activeTab: getWorkspaceTab(activeTab),
+                    activeFile: null
+                });
 
-                // Broadcast updated user list
-                io.to(`workspace_${workspaceId}`).emit("workspace_users",
-                    Array.from(usersMap.values())
-                );
+                broadcastWorkspaceUsers(io, workspaceId);
             }
         });
 
-        socket.on('active_file_change', ({ workspaceId, userId, filePath }) => {
+        socket.on('workspace_tab_change', ({ workspaceId, activeTab }) => {
             if (workspaceUsersMap.has(workspaceId)) {
                 const usersMap = workspaceUsersMap.get(workspaceId);
                 if (usersMap.has(socket.id)) {
                     const userData = usersMap.get(socket.id);
-                    userData.activeFile = filePath;
-                    io.to(`workspace_${workspaceId}`).emit("workspace_users",
-                        Array.from(usersMap.values())
-                    );
+                    userData.activeTab = getWorkspaceTab(activeTab);
+
+                    if (userData.activeTab !== 'code') {
+                        userData.activeFile = null;
+                    }
+
+                    broadcastWorkspaceUsers(io, workspaceId);
+                }
+            }
+        });
+
+        socket.on('active_file_change', ({ workspaceId, filePath }) => {
+            if (workspaceUsersMap.has(workspaceId)) {
+                const usersMap = workspaceUsersMap.get(workspaceId);
+                if (usersMap.has(socket.id)) {
+                    const userData = usersMap.get(socket.id);
+                    userData.activeTab = 'code';
+                    userData.activeFile = typeof filePath === 'string' && filePath.trim()
+                        ? filePath.trim()
+                        : null;
+                    broadcastWorkspaceUsers(io, workspaceId);
                 }
             }
         });
@@ -198,9 +232,7 @@ const initializeSocket = (server) => {
             for (const [workspaceId, usersMap] of workspaceUsersMap.entries()) {
                 if (usersMap.has(socket.id)) {
                     usersMap.delete(socket.id);
-                    io.to(`workspace_${workspaceId}`).emit("workspace_users",
-                        Array.from(usersMap.values())
-                    );
+                    broadcastWorkspaceUsers(io, workspaceId);
 
                     if (usersMap.size === 0) {
                         workspaceUsersMap.delete(workspaceId);

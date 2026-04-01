@@ -59,6 +59,16 @@ app.use((err, req, res, next) => {
     });
 });
 
+server.on("error", (error) => {
+    if (error.code === "EADDRINUSE") {
+        console.error(`Port ${port} is already in use. Stop the other server or change PORT in backend/.env.`);
+        process.exit(1);
+    }
+
+    console.error("Server failed to start:", error.message);
+    process.exit(1);
+});
+
 server.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });

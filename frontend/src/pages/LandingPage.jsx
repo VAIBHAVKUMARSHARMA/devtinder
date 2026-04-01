@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Code, Users, Search, Zap, Star, Globe, Shield, ArrowRight } from 'lucide-react';
+import { Code, Users, Search, Zap, Lightbulb, ArrowRight } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import { useSelector } from 'react-redux';
 import { useEffect } from 'react';
@@ -30,6 +30,16 @@ const LandingPage = () => {
       icon: Zap,
       title: 'Real-time Chat',
       description: 'Instant messaging to discuss ideas and share knowledge.',
+    },
+    {
+      icon: Lightbulb,
+      title: 'Share Project Ideas',
+      description: 'Post project concepts, explore ideas, and find the right people to build them.',
+    },
+    {
+      icon: Code,
+      title: 'Code and Collaborate',
+      description: 'Work together in shared workspaces with code editing, whiteboards, and team flow.',
     },
   ];
 
@@ -76,7 +86,7 @@ const LandingPage = () => {
           </div>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8 mt-20 animate-in fade-in duration-700 delay-500">
+        <div className="grid md:grid-cols-2 xl:grid-cols-5 gap-8 mt-20 animate-in fade-in duration-700 delay-500">
           {features.map((feature, index) => (
             <div
               key={feature.title}

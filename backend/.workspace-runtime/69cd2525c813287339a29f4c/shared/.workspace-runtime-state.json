@@ -1,0 +1,12 @@
+{
+  "trackedEntries": [
+    {
+      "type": "folder",
+      "path": "new folder"
+    },
+    {
+      "type": "file",
+      "path": "new folder/vaibhav.html"
+    }
+  ]
+}

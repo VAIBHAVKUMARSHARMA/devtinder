@@ -4,6 +4,7 @@ const {
     getWorkspaces,
     getWorkspaceDetails,
     addMember,
+    updateWorkspaceCombineAccess,
     getPendingInvitations,
     acceptInvitation,
     rejectInvitation,
@@ -13,10 +14,8 @@ const {
     discardWorkspaceCodeDraft,
     combineWorkspaceDrafts,
     runWorkspaceCode,
-    saveWorkspaceWhiteboard,
-    createSnapshot,
-    getSnapshots,
-    restoreSnapshot
+    runWorkspaceTerminal,
+    saveWorkspaceWhiteboard
 } = require('../controllers/workspaceController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -38,6 +37,9 @@ router.route('/:id')
 router.route('/:id/members')
     .post(addMember);
 
+router.route('/:id/combine-access')
+    .patch(updateWorkspaceCombineAccess);
+
 router.route('/:id/accept')
     .post(acceptInvitation);
 
@@ -54,17 +56,13 @@ router.route('/:id/code/combine')
 router.route('/:id/code/run')
     .post(runWorkspaceCode);
 
+router.route('/:id/code/terminal')
+    .post(runWorkspaceTerminal);
+
 router.route('/:id/code')
     .put(saveWorkspaceCode);
 
 router.route('/:id/whiteboard')
     .put(saveWorkspaceWhiteboard);
-
-router.route('/:id/snapshots')
-    .get(getSnapshots)
-    .post(createSnapshot);
-
-router.route('/:id/snapshots/:snapshotId/restore')
-    .post(restoreSnapshot);
 
 module.exports = router;

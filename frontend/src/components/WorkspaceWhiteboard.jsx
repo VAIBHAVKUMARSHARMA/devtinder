@@ -3,7 +3,7 @@ import { Excalidraw, convertToExcalidrawElements } from "@excalidraw/excalidraw"
 import "@excalidraw/excalidraw/index.css";
 import { io } from "socket.io-client";
 import { SOCKET_BASE_URL } from "@/lib/runtimeConfig";
-import { Loader2, Save, Trash2 } from "lucide-react";
+import { Loader2, PanelsTopLeft, Save, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { workspaceService } from "../services/workspaceService";
 
@@ -41,27 +41,52 @@ const buildDefaultWhiteboardScene = () => ({
     libraryItems: [],
 });
 
+const HIDE_PROPERTIES_PANEL_STYLES = `
+    .workspace-whiteboard--properties-hidden .excalidraw .App-menu__left {
+        display: none !important;
+    }
+`;
+
+const buildPersistedAppState = (appState) => {
+    const nextAppState = isPlainObject(appState) ? appState : {};
+    const persistedAppState = {
+        viewBackgroundColor:
+            typeof nextAppState.viewBackgroundColor === "string" &&
+                nextAppState.viewBackgroundColor.trim()
+                ? nextAppState.viewBackgroundColor.trim()
+                : DEFAULT_VIEW_BACKGROUND,
+    };
+
+    if (Number.isFinite(nextAppState.scrollX)) {
+        persistedAppState.scrollX = nextAppState.scrollX;
+    }
+
+    if (Number.isFinite(nextAppState.scrollY)) {
+        persistedAppState.scrollY = nextAppState.scrollY;
+    }
+
+    if (isPlainObject(nextAppState.zoom) && Number.isFinite(nextAppState.zoom.value)) {
+        persistedAppState.zoom = { value: nextAppState.zoom.value };
+    }
+
+    if (Number.isFinite(nextAppState.gridSize)) {
+        persistedAppState.gridSize = nextAppState.gridSize;
+    }
+
+    return persistedAppState;
+};
+
 const sanitizeWhiteboardScene = (sceneData) => {
     if (!isPlainObject(sceneData)) {
         return buildDefaultWhiteboardScene();
     }
-
-    const nextAppState = isPlainObject(sceneData.appState)
-        ? sceneData.appState
-        : {};
 
     return {
         kind: "excalidraw",
         elements: Array.isArray(sceneData.elements)
             ? cloneSerializable(sceneData.elements, [])
             : [],
-        appState: {
-            viewBackgroundColor:
-                typeof nextAppState.viewBackgroundColor === "string" &&
-                    nextAppState.viewBackgroundColor.trim()
-                    ? nextAppState.viewBackgroundColor.trim()
-                    : DEFAULT_VIEW_BACKGROUND,
-        },
+        appState: buildPersistedAppState(sceneData.appState),
         files: isPlainObject(sceneData.files)
             ? cloneSerializable(sceneData.files, {})
             : {},
@@ -207,6 +232,19 @@ const normalizeWhiteboardScene = (whiteboardData) => {
     return buildDefaultWhiteboardScene();
 };
 
+const getSceneFromApi = (api, fallbackScene) => {
+    if (!api) {
+        return sanitizeWhiteboardScene(fallbackScene);
+    }
+
+    return sanitizeWhiteboardScene({
+        ...fallbackScene,
+        elements: api.getSceneElements(),
+        appState: api.getAppState(),
+        files: api.getFiles(),
+    });
+};
+
 const WorkspaceWhiteboard = ({ workspaceId, initialWhiteboardData }) => {
     const initialScene = useMemo(
         () => normalizeWhiteboardScene(initialWhiteboardData),
@@ -214,6 +252,7 @@ const WorkspaceWhiteboard = ({ workspaceId, initialWhiteboardData }) => {
     );
 
     const [saving, setSaving] = useState(false);
+    const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
 
     const excalidrawApiRef = useRef(null);
     const socketRef = useRef(null);
@@ -277,7 +316,11 @@ const WorkspaceWhiteboard = ({ workspaceId, initialWhiteboardData }) => {
 
     useEffect(() => {
         sceneRef.current = initialScene;
-    }, [initialScene, workspaceId]);
+        clearEmitTimer();
+        isRemoteChange.current = true;
+        applySceneToCanvas(initialScene);
+        releaseRemoteLock();
+    }, [initialScene, workspaceId, applySceneToCanvas]);
 
     useEffect(() => {
         const socket = io(SOCKET_BASE_URL, {
@@ -342,7 +385,7 @@ const WorkspaceWhiteboard = ({ workspaceId, initialWhiteboardData }) => {
     const handleSaveWhiteboard = async () => {
         try {
             setSaving(true);
-            const nextScene = sanitizeWhiteboardScene(sceneRef.current);
+            const nextScene = getSceneFromApi(excalidrawApiRef.current, sceneRef.current);
             sceneRef.current = nextScene;
 
             await workspaceService.saveWorkspaceWhiteboard(workspaceId, {
@@ -382,8 +425,26 @@ const WorkspaceWhiteboard = ({ workspaceId, initialWhiteboardData }) => {
     }, [applySceneToCanvas]);
 
     return (
-        <div className="h-full w-full relative bg-[#f8fafc]">
+        <div
+            className={`h-full w-full relative bg-[#f8fafc] ${
+                showPropertiesPanel ? "" : "workspace-whiteboard--properties-hidden"
+            }`}
+        >
+            <style>{HIDE_PROPERTIES_PANEL_STYLES}</style>
+
             <div className="absolute top-3 right-3 z-20 flex items-center gap-2">
+                <button
+                    type="button"
+                    onClick={() => setShowPropertiesPanel((current) => !current)}
+                    className={`flex items-center rounded-md border px-3 py-2 text-sm font-medium shadow-sm transition-colors ${
+                        showPropertiesPanel
+                            ? "border-slate-900 bg-slate-900 text-white hover:bg-slate-800"
+                            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                >
+                    <PanelsTopLeft size={16} className="mr-2" />
+                    {showPropertiesPanel ? "Hide Properties" : "Show Properties"}
+                </button>
                 <button
                     type="button"
                     onClick={handleClearCanvas}

@@ -75,6 +75,10 @@ const workspaceSchema = new mongoose.Schema({
         type: [developerDraftSchema],
         default: () => ([])
     },
+    combineDraftManagers: [{
+        type: mongoose.Schema.ObjectId,
+        ref: 'User'
+    }],
     lastCombinedAt: {
         type: Date,
         default: null

@@ -43,6 +43,19 @@ const getNodeName = (path = "") => {
     return segments[segments.length - 1] || path;
 };
 
+const isValidWorkspacePath = (rawPath) => {
+    if (typeof rawPath !== "string") {
+        return false;
+    }
+
+    const normalized = normalizePath(rawPath);
+    if (!normalized) {
+        return false;
+    }
+
+    return !normalized.toLowerCase().includes("[object object]");
+};
+
 const getFileExtension = (filePath = "") => {
     const name = getNodeName(filePath);
     const dotIndex = name.lastIndexOf(".");
@@ -96,6 +109,10 @@ const normalizeArrayCodeFiles = (codeFiles = []) => {
             }
 
             const type = entry.type === "folder" ? "folder" : "file";
+            if (!isValidWorkspacePath(entry.path)) {
+                return null;
+            }
+
             const path = normalizePath(entry.path);
             if (!path) {
                 return null;
@@ -648,6 +665,23 @@ const buildExecutionConsoleLines = (executionResult = {}) => {
     return nextLines.slice(-200);
 };
 
+const createTerminalLine = (type, text) => ({
+    id: `${type}_${Math.random().toString(36).slice(2, 10)}`,
+    type,
+    text: String(text ?? ""),
+});
+
+const buildTerminalPromptLabel = (cwd = "") => `workspace:${cwd ? `/${cwd}` : "/"}$`;
+
+const buildWorkspaceRuntimeScope = (editorMode = "shared", currentUserId = "") =>
+    editorMode === "draft" && currentUserId ? `draft_${currentUserId}` : "shared";
+
+const splitTerminalContent = (content = "") =>
+    String(content)
+        .split(/\r?\n/)
+        .map((line) => line.trimEnd())
+        .filter((line) => line.length > 0);
+
 const getParentPath = (path = "") => {
     const normalizedPath = normalizePath(path);
     if (!normalizedPath.includes("/")) {
@@ -735,7 +769,10 @@ const buildExplorerTree = (codeFiles = []) => {
             const folderNode = ensureFolderNode(entry.path);
             folderNode.id = entry.id;
             folderNode.entry = entry;
-            folderNode.name = entry.name;
+            folderNode.name =
+                typeof entry.name === "string" && entry.name.trim()
+                    ? entry.name
+                    : getNodeName(entry.path);
             return;
         }
 
@@ -744,7 +781,10 @@ const buildExplorerTree = (codeFiles = []) => {
             id: entry.id,
             type: "file",
             path: entry.path,
-            name: entry.name,
+            name:
+                typeof entry.name === "string" && entry.name.trim()
+                    ? entry.name
+                    : getNodeName(entry.path),
             entry,
         });
     });
@@ -786,6 +826,9 @@ const WorkspaceCodeEditor = ({
     currentUser,
     currentUserDraft,
     draftSummary = [],
+    canCombineDrafts = false,
+    presenceUsers = [],
+    onPresenceActiveFileChange,
     onWorkspaceRefresh,
 }) => {
     const initialNormalizedCodeFiles = useMemo(
@@ -819,19 +862,33 @@ const WorkspaceCodeEditor = ({
     const [consoleLines, setConsoleLines] = useState([]);
     const [runtimeError, setRuntimeError] = useState("");
     const [expandedFolders, setExpandedFolders] = useState({});
-    const [activeUsers, setActiveUsers] = useState([]);
     const [draggedNode, setDraggedNode] = useState(null);
     const [navHistory, setNavHistory] = useState([]);
     const [navIndex, setNavIndex] = useState(-1);
     const [showDiffViewer, setShowDiffViewer] = useState(false);
-    const socketRef = useRef(null);
-    const iframeRef = useRef(null);
-    const isRemoteChange = useRef(false);
-    const remoteResetTimerRef = useRef(null);
+    const [activeBottomPanel, setActiveBottomPanel] = useState("terminal");
+    const [terminalLines, setTerminalLines] = useState([]);
+    const [terminalCommand, setTerminalCommand] = useState("");
+    const [terminalCwd, setTerminalCwd] = useState("");
+    const [terminalHistory, setTerminalHistory] = useState([]);
+    const [terminalHistoryIndex, setTerminalHistoryIndex] = useState(-1);
+    const [isTerminalRunning, setIsTerminalRunning] = useState(false);
+    const [terminalPackageState, setTerminalPackageState] = useState(null);
 
     const currentCodeFiles = editorMode === "draft" ? draftCodeFiles : sharedCodeFiles;
     const activeFileId = editorMode === "draft" ? draftActiveFileId : sharedActiveFileId;
     const currentModeLabel = editorMode === "draft" ? "My Draft" : "Shared Output";
+    const runtimeScope = buildWorkspaceRuntimeScope(editorMode, currentUserId);
+    const activeUsers = presenceUsers;
+
+    const socketRef = useRef(null);
+    const iframeRef = useRef(null);
+    const terminalScrollRef = useRef(null);
+    const terminalInputRef = useRef(null);
+    const isRemoteChange = useRef(false);
+    const remoteResetTimerRef = useRef(null);
+    const currentCodeFilesRef = useRef(currentCodeFiles);
+    const updateCurrentFileSelectionRef = useRef(() => undefined);
     const explorerTree = useMemo(() => buildExplorerTree(currentCodeFiles), [currentCodeFiles]);
     const activeFile = useMemo(
         () => currentCodeFiles.find((entry) => entry.id === activeFileId && entry.type === "file") || null,
@@ -892,11 +949,7 @@ const WorkspaceCodeEditor = ({
             withCredentials: true,
         });
 
-        socketRef.current.emit("join_workspace", { workspaceId, user: currentUser });
-
-        socketRef.current.on("workspace_users", (users) => {
-            setActiveUsers(users);
-        });
+        socketRef.current.emit("join_workspace", workspaceId);
 
         socketRef.current.on("receive_draft_saved", ({ user }) => {
             if (user && user._id !== currentUserId) {
@@ -958,18 +1011,16 @@ const WorkspaceCodeEditor = ({
 
             socketRef.current?.disconnect();
         };
-    }, [workspaceId, currentUser]);
+    }, [workspaceId, currentUserId, onWorkspaceRefresh]);
 
     // Emit active file change
     useEffect(() => {
-        if (socketRef.current && currentUser && activeFile) {
-            socketRef.current.emit("active_file_change", {
-                workspaceId,
-                userId: currentUser._id,
-                filePath: activeFile.path
-            });
+        if (typeof onPresenceActiveFileChange !== "function") {
+            return;
         }
-    }, [workspaceId, currentUser, activeFile?.path]);
+
+        onPresenceActiveFileChange(activeFile?.path || null);
+    }, [activeFile?.path, onPresenceActiveFileChange]);
 
     useEffect(() => {
         const onPreviewMessage = (event) => {
@@ -999,13 +1050,13 @@ const WorkspaceCodeEditor = ({
                 let normalizedTargetPath = targetPath;
                 if (targetPath.startsWith("./")) normalizedTargetPath = targetPath.slice(2);
 
-                const fileToNavigate = currentCodeFiles.find(
+                const fileToNavigate = currentCodeFilesRef.current.find(
                     f => f.path.toLowerCase() === normalizedTargetPath.toLowerCase() ||
                         f.path.toLowerCase().endsWith(`/${normalizedTargetPath.toLowerCase()}`)
                 );
 
                 if (fileToNavigate) {
-                    updateCurrentFileSelection(fileToNavigate.id);
+                    updateCurrentFileSelectionRef.current(fileToNavigate.id);
                     setPreviewSrcDoc(buildPreviewDocument(currentCodeFilesRef.current, fileToNavigate.path));
                 } else {
                     setRuntimeError(`404: Page not found (${targetPath})`);
@@ -1027,11 +1078,32 @@ const WorkspaceCodeEditor = ({
         });
     };
 
-    // Need a ref to get latest codeFiles for message events
-    const currentCodeFilesRef = useRef(currentCodeFiles);
     useEffect(() => {
         currentCodeFilesRef.current = currentCodeFiles;
     }, [currentCodeFiles]);
+
+    useEffect(() => {
+        if (!terminalScrollRef.current) {
+            return;
+        }
+
+        terminalScrollRef.current.scrollTop = terminalScrollRef.current.scrollHeight;
+    }, [terminalLines, activeBottomPanel]);
+
+    useEffect(() => {
+        if (activeBottomPanel !== "terminal") {
+            return;
+        }
+
+        terminalInputRef.current?.focus();
+    }, [activeBottomPanel, editorMode, workspaceId]);
+
+    useEffect(() => {
+        setTerminalCwd("");
+        setTerminalCommand("");
+        setTerminalHistoryIndex(-1);
+        setTerminalPackageState(null);
+    }, [workspaceId, editorMode]);
 
     const navToFilePathNoHistory = (targetPath) => {
         const fileToNavigate = currentCodeFilesRef.current.find(
@@ -1067,6 +1139,8 @@ const WorkspaceCodeEditor = ({
         }
     };
 
+    updateCurrentFileSelectionRef.current = updateCurrentFileSelection;
+
     const handleGoBack = () => {
         if (navIndex > 0) {
             const prevPath = navHistory[navIndex - 1];
@@ -1086,12 +1160,6 @@ const WorkspaceCodeEditor = ({
     const handleRefreshPreview = () => {
         if (activeFile) {
             setPreviewSrcDoc(buildPreviewDocument(currentCodeFiles, activeFile.path));
-            // Force recreation of iframe contents to give a "refresh" effect
-            setTimeout(() => {
-                if (iframeRef.current) {
-                    iframeRef.current.srcdoc = iframeRef.current.srcdoc;
-                }
-            }, 10);
         }
     };
 
@@ -1172,6 +1240,11 @@ const WorkspaceCodeEditor = ({
             return;
         }
 
+        if (!isValidWorkspacePath(path)) {
+            toast.error("Folder path is invalid");
+            return;
+        }
+
         const exists = currentCodeFiles.some((entry) => entry.path.toLowerCase() === path.toLowerCase());
         if (exists) {
             toast.error("File or folder with this path already exists");
@@ -1207,6 +1280,11 @@ const WorkspaceCodeEditor = ({
         const path = buildChildPath(parentPath, input);
         if (!path) {
             toast.error("File path cannot be empty");
+            return;
+        }
+
+        if (!isValidWorkspacePath(path)) {
+            toast.error("File path is invalid");
             return;
         }
 
@@ -1399,6 +1477,7 @@ const WorkspaceCodeEditor = ({
             return;
         }
 
+        setActiveBottomPanel("output");
         setConsoleLines([]);
         setRuntimeError("");
 
@@ -1414,6 +1493,7 @@ const WorkspaceCodeEditor = ({
             const response = await workspaceService.runWorkspaceCode(workspaceId, {
                 codeFiles: currentCodeFiles,
                 entryPath: activeFile.path,
+                runtimeScope,
             });
             const executionResult = response?.data || {};
 
@@ -1429,6 +1509,151 @@ const WorkspaceCodeEditor = ({
         } finally {
             setIsRunning(false);
         }
+    };
+
+    const updateCodeFilesFromTerminal = (nextCodeFiles, preferredActivePath = activeFile?.path || "") => {
+        const normalizedNextCodeFiles = normalizeCodeFiles(nextCodeFiles, getPrimaryCode(currentCodeFiles));
+        const fileEntries = normalizedNextCodeFiles.filter((entry) => entry.type === "file");
+
+        let nextActiveFileId = null;
+        if (preferredActivePath) {
+            nextActiveFileId =
+                fileEntries.find((entry) => entry.path.toLowerCase() === preferredActivePath.toLowerCase())?.id || null;
+        }
+
+        if (!nextActiveFileId) {
+            nextActiveFileId = fileEntries[0]?.id || null;
+        }
+
+        applyCodeFilesUpdate(normalizedNextCodeFiles, nextActiveFileId);
+    };
+
+    const appendTerminalEntries = (entries = []) => {
+        if (!Array.isArray(entries) || entries.length === 0) {
+            return;
+        }
+
+        setTerminalLines((prev) => [...prev, ...entries].slice(-400));
+    };
+
+    const handleRunTerminalCommand = async () => {
+        const trimmedCommand = terminalCommand.trim();
+        if (!trimmedCommand || isTerminalRunning) {
+            return;
+        }
+
+        const promptLabel = buildTerminalPromptLabel(terminalCwd);
+        appendTerminalEntries([createTerminalLine("command", `${promptLabel} ${trimmedCommand}`)]);
+
+        if (trimmedCommand === "clear" || trimmedCommand === "cls") {
+            setTerminalLines([]);
+            setTerminalCommand("");
+            setTerminalHistoryIndex(-1);
+            return;
+        }
+
+        setActiveBottomPanel("terminal");
+        setTerminalHistory((prev) => {
+            if (prev[prev.length - 1] === trimmedCommand) {
+                return prev;
+            }
+
+            return [...prev, trimmedCommand].slice(-100);
+        });
+        setTerminalHistoryIndex(-1);
+        setTerminalCommand("");
+
+        try {
+            setIsTerminalRunning(true);
+            const response = await workspaceService.runWorkspaceTerminal(workspaceId, {
+                codeFiles: currentCodeFiles,
+                command: trimmedCommand,
+                cwd: terminalCwd,
+                runtimeScope,
+            });
+            const terminalResult = response?.data || {};
+
+            if (typeof terminalResult.cwd === "string") {
+                setTerminalCwd(terminalResult.cwd);
+            }
+
+            setTerminalPackageState(terminalResult.packageState || null);
+
+            const nextEntries = [];
+            splitTerminalContent(terminalResult.stdout).forEach((line) => {
+                nextEntries.push(createTerminalLine("stdout", line));
+            });
+            splitTerminalContent(terminalResult.stderr).forEach((line) => {
+                nextEntries.push(createTerminalLine("stderr", line));
+            });
+
+            if (terminalResult.message && nextEntries.length === 0) {
+                nextEntries.push(
+                    createTerminalLine(terminalResult.success ? "meta" : "stderr", terminalResult.message)
+                );
+            } else if (terminalResult.message && !terminalResult.success) {
+                nextEntries.push(createTerminalLine("stderr", terminalResult.message));
+            }
+
+            appendTerminalEntries(nextEntries);
+
+            if (Array.isArray(terminalResult.updatedCodeFiles)) {
+                updateCodeFilesFromTerminal(terminalResult.updatedCodeFiles);
+            }
+        } catch (error) {
+            const message = error.response?.data?.message || "Failed to run workspace terminal command";
+            appendTerminalEntries([createTerminalLine("stderr", message)]);
+        } finally {
+            setIsTerminalRunning(false);
+            terminalInputRef.current?.focus();
+        }
+    };
+
+    const handleTerminalInputKeyDown = (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            handleRunTerminalCommand();
+            return;
+        }
+
+        if (event.key === "ArrowUp") {
+            if (terminalHistory.length === 0) {
+                return;
+            }
+
+            event.preventDefault();
+            const nextIndex =
+                terminalHistoryIndex < 0
+                    ? terminalHistory.length - 1
+                    : Math.max(0, terminalHistoryIndex - 1);
+            setTerminalHistoryIndex(nextIndex);
+            setTerminalCommand(terminalHistory[nextIndex] || "");
+            return;
+        }
+
+        if (event.key === "ArrowDown") {
+            if (terminalHistory.length === 0 || terminalHistoryIndex < 0) {
+                return;
+            }
+
+            event.preventDefault();
+            const nextIndex = terminalHistoryIndex + 1;
+            if (nextIndex >= terminalHistory.length) {
+                setTerminalHistoryIndex(-1);
+                setTerminalCommand("");
+                return;
+            }
+
+            setTerminalHistoryIndex(nextIndex);
+            setTerminalCommand(terminalHistory[nextIndex] || "");
+        }
+    };
+
+    const handleClearTerminal = () => {
+        setTerminalLines([]);
+        setTerminalCommand("");
+        setTerminalHistoryIndex(-1);
+        terminalInputRef.current?.focus();
     };
 
     const handleSaveSharedCode = async () => {
@@ -1463,6 +1688,25 @@ const WorkspaceCodeEditor = ({
         }
     };
 
+    const verifyLatestCombineAccess = async () => {
+        try {
+            const response = await workspaceService.getWorkspaceDetails(workspaceId);
+            const latestWorkspace = response?.data?.workspace;
+            const isAllowed = Boolean(latestWorkspace?.canCurrentUserCombineDrafts);
+
+            if (!isAllowed) {
+                await onWorkspaceRefresh?.();
+                toast.error("Combine access is not granted for this account");
+                return false;
+            }
+
+            return true;
+        } catch (error) {
+            toast.error(error.response?.data?.message || "Failed to verify combine access");
+            return false;
+        }
+    };
+
     const handleResetDraft = async () => {
         const confirmed = window.confirm("Reset your draft back to the latest shared output?");
         if (!confirmed) {
@@ -1491,18 +1735,34 @@ const WorkspaceCodeEditor = ({
     };
 
     const handleCombineDrafts = async () => {
+        const hasAccess = canCombineDrafts && await verifyLatestCombineAccess();
+        if (!hasAccess) {
+            return false;
+        }
+
         try {
             setCombiningDrafts(true);
             const response = await workspaceService.combineWorkspaceDrafts(workspaceId);
-            const conflicts = response?.data?.data?.conflicts || [];
-            const newCodeFiles = response?.data?.data?.codeFiles || [];
-            const newCode = response?.data?.data?.code || "";
+            const responseData = response?.data || {};
+            const conflicts = responseData?.conflicts || [];
+            const newCodeFiles = responseData?.codeFiles || [];
+            const newCode = responseData?.code || "";
+            const normalizedMergedCodeFiles = normalizeCodeFiles(newCodeFiles, newCode);
+
+            setSharedCodeFiles(normalizedMergedCodeFiles);
+            setSharedActiveFileId(
+                normalizedMergedCodeFiles.find((entry) => entry.type === "file")?.id || null
+            );
+            setDraftCodeFiles(normalizedMergedCodeFiles);
+            setDraftActiveFileId(
+                normalizedMergedCodeFiles.find((entry) => entry.type === "file")?.id || null
+            );
 
             // Broadcast the newly merged data instantly
             socketRef.current?.emit("code_change", {
                 workspaceId,
                 code: newCode,
-                codeFiles: newCodeFiles
+                codeFiles: normalizedMergedCodeFiles
             });
 
             await onWorkspaceRefresh?.();
@@ -1515,8 +1775,10 @@ const WorkspaceCodeEditor = ({
             }
 
             setEditorMode("shared");
+            return true;
         } catch (error) {
             toast.error(error.response?.data?.message || "Failed to combine drafts");
+            return false;
         } finally {
             setCombiningDrafts(false);
         }
@@ -1740,9 +2002,21 @@ const WorkspaceCodeEditor = ({
 
                         <button
                             type="button"
-                            onClick={() => setShowDiffViewer(true)}
-                            disabled={combiningDrafts || draftSummary.length === 0}
+                            onClick={async () => {
+                                if (!canCombineDrafts) {
+                                    toast.error("Only the workspace owner or granted merge leads can combine drafts");
+                                    return;
+                                }
+
+                                const hasAccess = await verifyLatestCombineAccess();
+                                if (!hasAccess) {
+                                    return;
+                                }
+                                setShowDiffViewer(true);
+                            }}
+                            disabled={combiningDrafts || draftSummary.length === 0 || !canCombineDrafts}
                             className="text-sm bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-3 py-1.5 rounded disabled:opacity-50 transition-colors"
+                            title={canCombineDrafts ? "Review and combine team drafts" : "Ask the workspace owner to grant merge access"}
                         >
                             {combiningDrafts ? "Combining..." : "Combine Drafts"}
                         </button>
@@ -1754,7 +2028,9 @@ const WorkspaceCodeEditor = ({
                                 key={u._id}
                                 src={u.profilePicture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u._id}`}
                                 className="w-7 h-7 rounded-full border-2 border-[#111827] relative hover:z-20 transition-transform hover:scale-110"
-                                title={`${u.name} ${u.activeFile ? `(Editing: ${getNodeName(u.activeFile)})` : '(Idle)'}`}
+                                title={`${u.name} ${u.activeTab === "code" && u.activeFile
+                                    ? `(Editing: ${getNodeName(u.activeFile)})`
+                                    : `(In ${u.activeTab || "tasks"})`}`}
                             />
                         ))}
                     </div>
@@ -1766,6 +2042,11 @@ const WorkspaceCodeEditor = ({
                             ? "Shared Output syncs live for everyone in the workspace."
                             : "My Draft stays private until you save it and combine team drafts, but it keeps the latest shared folder structure."}
                     </span>
+                    {!canCombineDrafts ? (
+                        <span className="text-amber-300">
+                            Only the workspace owner or granted merge leads can combine drafts.
+                        </span>
+                    ) : null}
                     <span className="text-slate-500">Saved drafts:</span>
                     {draftSummary.length === 0 ? (
                         <span className="text-slate-400">No saved drafts yet</span>
@@ -1901,28 +2182,118 @@ const WorkspaceCodeEditor = ({
                             srcDoc={previewSrcDoc}
                             className="flex-1 w-full bg-white"
                         />
-                        <div className="h-40 bg-[#0b1220] border-t border-slate-700 text-slate-200 flex flex-col">
-                            <div className="px-3 py-2 border-b border-slate-700 text-xs font-semibold uppercase tracking-wide flex items-center">
-                                <TerminalSquare size={14} className="mr-2" />
-                                Console
-                            </div>
-                            <div className="flex-1 overflow-y-auto px-3 py-2 text-xs font-mono space-y-1">
-                                {runtimeError ? (
-                                    <div className="text-rose-400 p-2 bg-rose-400/10 rounded border border-rose-400/20">
-                                        [Runtime Error] {runtimeError}
+                        <div className="h-56 bg-[#0b1220] border-t border-slate-700 text-slate-200 flex flex-col">
+                            <div className="px-3 py-2 border-b border-slate-700 text-xs font-semibold uppercase tracking-wide flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveBottomPanel("output")}
+                                        className={`rounded px-2 py-1 transition-colors ${activeBottomPanel === "output"
+                                            ? "bg-slate-200 text-slate-950"
+                                            : "text-slate-400 hover:text-white"
+                                            }`}
+                                    >
+                                        Output
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveBottomPanel("terminal")}
+                                        className={`rounded px-2 py-1 transition-colors ${activeBottomPanel === "terminal"
+                                            ? "bg-slate-200 text-slate-950"
+                                            : "text-slate-400 hover:text-white"
+                                            }`}
+                                    >
+                                        <span className="inline-flex items-center gap-1">
+                                            <TerminalSquare size={14} />
+                                            Terminal
+                                        </span>
+                                    </button>
+                                </div>
+                                {activeBottomPanel === "terminal" ? (
+                                    <div className="flex items-center gap-2 text-[11px] normal-case flex-wrap justify-end">
+                                        {terminalPackageState?.hasPackageJson ? (
+                                            <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-1 text-cyan-100">
+                                                {terminalPackageState.packageManager || "npm"} · {terminalPackageState.dependencyCount || 0} deps
+                                                {terminalPackageState.devDependencyCount ? ` · ${terminalPackageState.devDependencyCount} dev` : ""}
+                                                {terminalPackageState.hasNodeModules ? ` · ${terminalPackageState.installedPackageCount || 0} installed` : " · install pending"}
+                                            </span>
+                                        ) : null}
+                                        <span className="truncate text-slate-400">{buildTerminalPromptLabel(terminalCwd)}</span>
+                                        <button
+                                            type="button"
+                                            onClick={handleClearTerminal}
+                                            className="rounded border border-slate-700 px-2 py-1 text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
+                                        >
+                                            Clear
+                                        </button>
                                     </div>
-                                ) : consoleLines.length > 0 ? (
-                                    consoleLines.map((line, idx) => (
-                                        <div key={idx} className="border-b border-slate-800/50 pb-1 break-all">
-                                            {line}
+                                ) : null}
+                            </div>
+
+                            {activeBottomPanel === "output" ? (
+                                <div className="flex-1 overflow-y-auto px-3 py-2 text-xs font-mono space-y-1">
+                                    {runtimeError ? (
+                                        <div className="text-rose-400 p-2 bg-rose-400/10 rounded border border-rose-400/20">
+                                            [Runtime Error] {runtimeError}
                                         </div>
-                                    ))
-                                ) : (
-                                    <div className="text-slate-500 p-2 italic">
-                                        No console output
+                                    ) : consoleLines.length > 0 ? (
+                                        consoleLines.map((line, idx) => (
+                                            <div key={idx} className="border-b border-slate-800/50 pb-1 break-all">
+                                                {line}
+                                            </div>
+                                        ))
+                                    ) : null}
+                                </div>
+                            ) : (
+                                <div
+                                    className="flex-1 flex flex-col"
+                                    onClick={() => terminalInputRef.current?.focus()}
+                                >
+                                    <div
+                                        ref={terminalScrollRef}
+                                        className="flex-1 overflow-y-auto px-3 py-2 text-xs font-mono"
+                                    >
+                                        <div className="space-y-1">
+                                            {terminalLines.map((line) => (
+                                                <div
+                                                    key={line.id}
+                                                    className={`break-all whitespace-pre-wrap ${line.type === "command"
+                                                        ? "text-sky-300"
+                                                        : line.type === "stderr"
+                                                            ? "text-rose-300"
+                                                            : line.type === "meta"
+                                                                ? "text-amber-200"
+                                                                : "text-slate-200"
+                                                        }`}
+                                                >
+                                                    {line.text}
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
-                                )}
-                            </div>
+
+                                    <div className="border-t border-slate-800 px-3 py-2">
+                                        <div className="flex items-center gap-2 text-xs font-mono">
+                                            <span className="shrink-0 text-emerald-300">
+                                                {buildTerminalPromptLabel(terminalCwd)}
+                                            </span>
+                                            <input
+                                                ref={terminalInputRef}
+                                                type="text"
+                                                value={terminalCommand}
+                                                onChange={(event) => setTerminalCommand(event.target.value)}
+                                                onKeyDown={handleTerminalInputKeyDown}
+                                                placeholder={isTerminalRunning ? "Running..." : "Type a command and press Enter"}
+                                                disabled={isTerminalRunning}
+                                                className="flex-1 bg-transparent text-slate-100 outline-none placeholder:text-slate-500 disabled:cursor-wait"
+                                                spellCheck={false}
+                                                autoCapitalize="off"
+                                                autoCorrect="off"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -1933,9 +2304,11 @@ const WorkspaceCodeEditor = ({
                     draftFiles={draftCodeFiles}
                     sharedFiles={sharedCodeFiles}
                     onClose={() => setShowDiffViewer(false)}
-                    onConfirm={() => {
-                        handleCombineDrafts();
-                        setShowDiffViewer(false);
+                    onConfirm={async () => {
+                        const combined = await handleCombineDrafts();
+                        if (combined) {
+                            setShowDiffViewer(false);
+                        }
                     }}
                     isMerging={combiningDrafts}
                 />

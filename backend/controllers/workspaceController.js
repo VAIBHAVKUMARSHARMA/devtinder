@@ -1,8 +1,7 @@
 const Workspace = require('../models/Workspace');
-const WorkspaceSnapshot = require('../models/WorkspaceSnapshot');
 const User = require('../models/User');
 const Task = require('../models/Task');
-const { runWorkspaceCodeFiles } = require('../utils/workspaceCodeRunner');
+const { runWorkspaceCodeFiles, runWorkspaceTerminalCommand } = require('../utils/workspaceCodeRunner');
 
 const DEFAULT_JS_CODE = '';
 const DEFAULT_WHITEBOARD_DATA = {
@@ -38,6 +37,19 @@ const normalizePath = (path = '') =>
 const getNodeName = (path = '') => {
     const segments = path.split('/');
     return segments[segments.length - 1] || path;
+};
+
+const isValidWorkspacePath = (rawPath) => {
+    if (typeof rawPath !== 'string') {
+        return false;
+    }
+
+    const normalized = normalizePath(rawPath);
+    if (!normalized) {
+        return false;
+    }
+
+    return !normalized.toLowerCase().includes('[object object]');
 };
 
 const sortCodeFiles = (codeFiles = []) =>
@@ -87,6 +99,10 @@ const normalizeArrayCodeFiles = (codeFiles = []) => {
             }
 
             const type = entry.type === 'folder' ? 'folder' : 'file';
+            if (!isValidWorkspacePath(entry.path)) {
+                return null;
+            }
+
             const path = normalizePath(entry.path);
 
             if (!path) {
@@ -205,6 +221,23 @@ const getUserIdString = (userValue) => {
 
 const isWorkspaceMember = (workspace, userId) =>
     workspace.members.some((member) => getUserIdString(member) === getUserIdString(userId));
+
+const canUserCombineDrafts = (workspace, userId) => {
+    const normalizedUserId = getUserIdString(userId);
+    if (!normalizedUserId) {
+        return false;
+    }
+
+    if (getUserIdString(workspace.owner) === normalizedUserId) {
+        return true;
+    }
+
+    const combineManagers = Array.isArray(workspace.combineDraftManagers)
+        ? workspace.combineDraftManagers
+        : [];
+
+    return combineManagers.some((member) => getUserIdString(member) === normalizedUserId);
+};
 
 const resolveNextCodeFiles = ({ code, codeFiles }, existingCodeFiles = [], fallbackJs = DEFAULT_JS_CODE) => {
     let nextCodeFiles = existingCodeFiles;
@@ -505,6 +538,40 @@ const buildDefaultWhiteboardData = () => ({
 const isLegacyWhiteboardData = (whiteboardData) =>
     Array.isArray(whiteboardData?.nodes) || Array.isArray(whiteboardData?.links);
 
+const buildPersistedWhiteboardAppState = (appState) => {
+    const normalizedAppState = isPlainObject(appState)
+        ? cloneSerializable(appState, {})
+        : {};
+    const persistedAppState = {
+        viewBackgroundColor:
+            typeof normalizedAppState.viewBackgroundColor === 'string' &&
+            normalizedAppState.viewBackgroundColor.trim()
+                ? normalizedAppState.viewBackgroundColor.trim()
+                : DEFAULT_WHITEBOARD_DATA.appState.viewBackgroundColor
+    };
+
+    if (Number.isFinite(normalizedAppState.scrollX)) {
+        persistedAppState.scrollX = normalizedAppState.scrollX;
+    }
+
+    if (Number.isFinite(normalizedAppState.scrollY)) {
+        persistedAppState.scrollY = normalizedAppState.scrollY;
+    }
+
+    if (
+        isPlainObject(normalizedAppState.zoom) &&
+        Number.isFinite(normalizedAppState.zoom.value)
+    ) {
+        persistedAppState.zoom = { value: normalizedAppState.zoom.value };
+    }
+
+    if (Number.isFinite(normalizedAppState.gridSize)) {
+        persistedAppState.gridSize = normalizedAppState.gridSize;
+    }
+
+    return persistedAppState;
+};
+
 const normalizeWhiteboardData = (whiteboardData) => {
     if (isLegacyWhiteboardData(whiteboardData)) {
         return cloneSerializable(whiteboardData, buildDefaultWhiteboardData());
@@ -514,22 +581,12 @@ const normalizeWhiteboardData = (whiteboardData) => {
         return buildDefaultWhiteboardData();
     }
 
-    const normalizedAppState = isPlainObject(whiteboardData.appState)
-        ? cloneSerializable(whiteboardData.appState, {})
-        : {};
-    const viewBackgroundColor = typeof normalizedAppState.viewBackgroundColor === 'string' &&
-        normalizedAppState.viewBackgroundColor.trim()
-        ? normalizedAppState.viewBackgroundColor.trim()
-        : DEFAULT_WHITEBOARD_DATA.appState.viewBackgroundColor;
-
     return {
         kind: 'excalidraw',
         elements: Array.isArray(whiteboardData.elements)
             ? cloneSerializable(whiteboardData.elements, [])
             : [],
-        appState: {
-            viewBackgroundColor
-        },
+        appState: buildPersistedWhiteboardAppState(whiteboardData.appState),
         files: isPlainObject(whiteboardData.files)
             ? cloneSerializable(whiteboardData.files, {})
             : {},
@@ -600,6 +657,7 @@ exports.getWorkspaceDetails = async (req, res) => {
         const workspace = await Workspace.findById(req.params.id)
             .populate('owner', 'name profilePicture')
             .populate('members', 'name profilePicture')
+            .populate('combineDraftManagers', 'name profilePicture')
             .populate('developerDrafts.user', 'name profilePicture')
             .populate('lastCombinedBy', 'name profilePicture');
 
@@ -627,6 +685,7 @@ exports.getWorkspaceDetails = async (req, res) => {
         workspacePayload.code = getPrimaryCode(workspacePayload.codeFiles);
         workspacePayload.whiteboardData = normalizeWhiteboardData(workspacePayload.whiteboardData);
         workspacePayload.codeDraftSummary = buildDraftSummary(workspace.developerDrafts);
+        workspacePayload.canCurrentUserCombineDrafts = canUserCombineDrafts(workspace, req.user._id);
         workspacePayload.currentUserDraft = currentUserDraft
             ? {
                 codeFiles: normalizeCodeFiles(currentUserDraft.codeFiles, workspacePayload.code),
@@ -707,6 +766,91 @@ exports.addMember = async (req, res) => {
             status: 'success',
             data: {
                 workspace: updatedWorkspace
+            }
+        });
+    } catch (err) {
+        res.status(400).json({
+            status: 'fail',
+            message: err.message
+        });
+    }
+};
+
+// @desc    Grant or revoke combine-drafts access for a workspace member
+// @route   PATCH /api/workspaces/:id/combine-access
+// @access  Private (owner only)
+exports.updateWorkspaceCombineAccess = async (req, res) => {
+    try {
+        const { userId, allowed } = req.body;
+        const workspace = await Workspace.findById(req.params.id)
+            .populate('owner', 'name profilePicture')
+            .populate('members', 'name profilePicture')
+            .populate('combineDraftManagers', 'name profilePicture');
+
+        if (!workspace) {
+            return res.status(404).json({
+                status: 'fail',
+                message: 'Workspace not found'
+            });
+        }
+
+        if (workspace.owner._id.toString() !== req.user._id.toString()) {
+            return res.status(403).json({
+                status: 'fail',
+                message: 'Only the workspace owner can manage combine access'
+            });
+        }
+
+        if (!userId) {
+            return res.status(400).json({
+                status: 'fail',
+                message: 'Please provide a member userId'
+            });
+        }
+
+        if (workspace.owner._id.toString() === userId.toString()) {
+            return res.status(400).json({
+                status: 'fail',
+                message: 'The workspace owner already has combine access'
+            });
+        }
+
+        const isMember = workspace.members.some((member) => member._id.toString() === userId.toString());
+        if (!isMember) {
+            return res.status(400).json({
+                status: 'fail',
+                message: 'Combine access can only be granted to workspace members'
+            });
+        }
+
+        const existingManagerIds = new Set(
+            (workspace.combineDraftManagers || []).map((member) => member._id.toString())
+        );
+
+        let nextManagerIds = [...existingManagerIds];
+        if (allowed) {
+            if (!existingManagerIds.has(userId.toString())) {
+                nextManagerIds.push(userId.toString());
+            }
+        } else {
+            nextManagerIds = nextManagerIds.filter((managerId) => managerId !== userId.toString());
+        }
+
+        workspace.combineDraftManagers = nextManagerIds;
+        await workspace.save();
+
+        const refreshedWorkspace = await Workspace.findById(req.params.id)
+            .populate('owner', 'name profilePicture')
+            .populate('members', 'name profilePicture')
+            .populate('combineDraftManagers', 'name profilePicture');
+
+        res.status(200).json({
+            status: 'success',
+            message: allowed
+                ? 'Combine access granted successfully'
+                : 'Combine access removed successfully',
+            data: {
+                combineDraftManagers: refreshedWorkspace.combineDraftManagers || []
             }
         });
     } catch (err) {
@@ -952,10 +1096,68 @@ exports.runWorkspaceCode = async (req, res) => {
             normalizeCodeFiles(requestedCodeFiles, workspace.code)
         );
         const entryPath = typeof req.body?.entryPath === 'string' ? req.body.entryPath : '';
+        const runtimeScope = typeof req.body?.runtimeScope === 'string' ? req.body.runtimeScope : 'shared';
 
         const executionResult = await runWorkspaceCodeFiles({
             codeFiles: normalizedCodeFiles,
-            entryPath
+            entryPath,
+            workspaceId: req.params.id,
+            runtimeScope
+        });
+
+        res.status(200).json({
+            status: 'success',
+            data: executionResult
+        });
+    } catch (err) {
+        res.status(400).json({
+            status: 'fail',
+            message: err.message
+        });
+    }
+};
+
+// @desc    Run a terminal command inside the workspace
+// @route   POST /api/workspaces/:id/code/terminal
+// @access  Private
+exports.runWorkspaceTerminal = async (req, res) => {
+    try {
+        const workspace = await Workspace.findById(req.params.id);
+
+        if (!workspace) {
+            return res.status(404).json({
+                status: 'fail',
+                message: 'Workspace not found'
+            });
+        }
+
+        const isMember = isWorkspaceMember(workspace, req.user._id);
+        const isOwner = workspace.owner.toString() === req.user._id.toString();
+
+        if (!isMember && !isOwner) {
+            return res.status(403).json({
+                status: 'fail',
+                message: 'You must be a member or owner to use the workspace terminal'
+            });
+        }
+
+        const requestedCodeFiles =
+            req.body?.codeFiles && typeof req.body.codeFiles === 'object'
+                ? req.body.codeFiles
+                : workspace.codeFiles;
+        const normalizedCodeFiles = ensureFolderEntries(
+            normalizeCodeFiles(requestedCodeFiles, workspace.code)
+        );
+        const command = typeof req.body?.command === 'string' ? req.body.command : '';
+        const cwd = typeof req.body?.cwd === 'string' ? req.body.cwd : '';
+        const runtimeScope = typeof req.body?.runtimeScope === 'string' ? req.body.runtimeScope : 'shared';
+
+        const executionResult = await runWorkspaceTerminalCommand({
+            workspaceId: req.params.id,
+            runtimeScope,
+            codeFiles: normalizedCodeFiles,
+            command,
+            cwd
         });
 
         res.status(200).json({
@@ -1103,6 +1305,8 @@ exports.discardWorkspaceCodeDraft = async (req, res) => {
 exports.combineWorkspaceDrafts = async (req, res) => {
     try {
         const workspace = await Workspace.findById(req.params.id)
+            .populate('owner', 'name profilePicture')
+            .populate('combineDraftManagers', 'name profilePicture')
             .populate('developerDrafts.user', 'name profilePicture')
             .populate('lastCombinedBy', 'name profilePicture');
 
@@ -1120,6 +1324,13 @@ exports.combineWorkspaceDrafts = async (req, res) => {
             });
         }
 
+        if (!canUserCombineDrafts(workspace, req.user._id)) {
+            return res.status(403).json({
+                status: 'fail',
+                message: 'Only the workspace owner or granted merge leads can combine drafts'
+            });
+        }
+
         if (!workspace.developerDrafts.length) {
             return res.status(400).json({
                 status: 'fail',
@@ -1134,11 +1345,8 @@ exports.combineWorkspaceDrafts = async (req, res) => {
         workspace.code = getPrimaryCode(combineResult.codeFiles);
         workspace.lastCombinedAt = new Date();
         workspace.lastCombinedBy = req.user._id;
-
-        if (combineResult.conflicts.length === 0) {
-            workspace.developerDrafts = [];
-            workspace.markModified('developerDrafts');
-        }
+        workspace.developerDrafts = [];
+        workspace.markModified('developerDrafts');
 
         await workspace.save();
 
@@ -1203,6 +1411,7 @@ exports.saveWorkspaceWhiteboard = async (req, res) => {
 
         const normalizedWhiteboardData = normalizeWhiteboardData(whiteboardData);
         workspace.whiteboardData = normalizedWhiteboardData;
+        workspace.markModified('whiteboardData');
         await workspace.save();
 
         res.status(200).json({
@@ -1210,157 +1419,6 @@ exports.saveWorkspaceWhiteboard = async (req, res) => {
             message: 'Whiteboard saved successfully',
             data: {
                 whiteboardData: normalizedWhiteboardData
-            }
-        });
-    } catch (err) {
-        res.status(400).json({
-            status: 'fail',
-            message: err.message
-        });
-    }
-};
-
-// @desc    Create a new workspace snapshot
-// @route   POST /api/workspaces/:id/snapshots
-// @access  Private
-exports.createSnapshot = async (req, res) => {
-    try {
-        const { name, description } = req.body;
-        const workspace = await Workspace.findById(req.params.id);
-
-        if (!workspace) {
-            return res.status(404).json({
-                status: 'fail',
-                message: 'Workspace not found'
-            });
-        }
-
-        const isMember = isWorkspaceMember(workspace, req.user._id);
-        const isOwner = workspace.owner.toString() === req.user._id.toString();
-
-        if (!isMember && !isOwner) {
-            return res.status(403).json({
-                status: 'fail',
-                message: 'You must be a member or owner to create a snapshot'
-            });
-        }
-
-        const snapshot = await WorkspaceSnapshot.create({
-            workspaceId: workspace._id,
-            name: name || `Snapshot ${new Date().toLocaleString()}`,
-            description: description || '',
-            codeFiles: workspace.codeFiles,
-            whiteboardData: workspace.whiteboardData,
-            createdBy: req.user._id
-        });
-
-        res.status(201).json({
-            status: 'success',
-            data: {
-                snapshot
-            }
-        });
-    } catch (err) {
-        res.status(400).json({
-            status: 'fail',
-            message: err.message
-        });
-    }
-};
-
-// @desc    Get all snapshots for a workspace
-// @route   GET /api/workspaces/:id/snapshots
-// @access  Private
-exports.getSnapshots = async (req, res) => {
-    try {
-        const workspace = await Workspace.findById(req.params.id);
-
-        if (!workspace) {
-            return res.status(404).json({
-                status: 'fail',
-                message: 'Workspace not found'
-            });
-        }
-
-        const isMember = isWorkspaceMember(workspace, req.user._id);
-        const isOwner = workspace.owner.toString() === req.user._id.toString();
-
-        if (!isMember && !isOwner) {
-            return res.status(403).json({
-                status: 'fail',
-                message: 'You must be a member or owner to view snapshots'
-            });
-        }
-
-        const snapshots = await WorkspaceSnapshot.find({ workspaceId: workspace._id })
-            .sort({ createdAt: -1 })
-            .select('-codeFiles -whiteboardData')
-            .populate('createdBy', 'name profilePicture');
-
-        res.status(200).json({
-            status: 'success',
-            results: snapshots.length,
-            data: {
-                snapshots
-            }
-        });
-    } catch (err) {
-        res.status(400).json({
-            status: 'fail',
-            message: err.message
-        });
-    }
-};
-
-// @desc    Restore workspace from a snapshot
-// @route   POST /api/workspaces/:id/snapshots/:snapshotId/restore
-// @access  Private
-exports.restoreSnapshot = async (req, res) => {
-    try {
-        const workspace = await Workspace.findById(req.params.id);
-
-        if (!workspace) {
-            return res.status(404).json({
-                status: 'fail',
-                message: 'Workspace not found'
-            });
-        }
-
-        const isMember = isWorkspaceMember(workspace, req.user._id);
-        const isOwner = workspace.owner.toString() === req.user._id.toString();
-
-        if (!isMember && !isOwner) {
-            return res.status(403).json({
-                status: 'fail',
-                message: 'You must be a member or owner to restore a snapshot'
-            });
-        }
-
-        const snapshot = await WorkspaceSnapshot.findOne({
-            _id: req.params.snapshotId,
-            workspaceId: workspace._id
-        });
-
-        if (!snapshot) {
-            return res.status(404).json({
-                status: 'fail',
-                message: 'Snapshot not found'
-            });
-        }
-
-        workspace.codeFiles = snapshot.codeFiles;
-        workspace.code = getPrimaryCode(snapshot.codeFiles);
-        workspace.whiteboardData = snapshot.whiteboardData;
-
-        await workspace.save();
-
-        res.status(200).json({
-            status: 'success',
-            message: `Workspace restored to snapshot: ${snapshot.name}`,
-            data: {
-                codeFiles: workspace.codeFiles,
-                code: workspace.code,
-                whiteboardData: workspace.whiteboardData
             }
         });
     } catch (err) {

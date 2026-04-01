@@ -21,6 +21,11 @@ export const workspaceService = {
         return response.data;
     },
 
+    updateWorkspaceCombineAccess: async (workspaceId, payload) => {
+        const response = await axiosInstance.patch(`/workspaces/${workspaceId}/combine-access`, payload);
+        return response.data;
+    },
+
     getPendingInvitations: async () => {
         const response = await axiosInstance.get("/workspaces/invitations");
         return response.data;
@@ -51,6 +56,11 @@ export const workspaceService = {
         return response.data;
     },
 
+    runWorkspaceTerminal: async (id, payload) => {
+        const response = await axiosInstance.post(`/workspaces/${id}/code/terminal`, payload);
+        return response.data;
+    },
+
     saveWorkspaceCodeDraft: async (id, payload) => {
         const response = await axiosInstance.put(`/workspaces/${id}/code/draft`, payload);
         return response.data;
@@ -68,21 +78,6 @@ export const workspaceService = {
 
     saveWorkspaceWhiteboard: async (id, payload) => {
         const response = await axiosInstance.put(`/workspaces/${id}/whiteboard`, payload);
-        return response.data;
-    },
-
-    getWorkspaceSnapshots: async (id) => {
-        const response = await axiosInstance.get(`/workspaces/${id}/snapshots`);
-        return response.data;
-    },
-
-    createWorkspaceSnapshot: async (id, payload) => {
-        const response = await axiosInstance.post(`/workspaces/${id}/snapshots`, payload);
-        return response.data;
-    },
-
-    restoreWorkspaceSnapshot: async (id, snapshotId) => {
-        const response = await axiosInstance.post(`/workspaces/${id}/snapshots/${snapshotId}/restore`);
         return response.data;
     }
 };
