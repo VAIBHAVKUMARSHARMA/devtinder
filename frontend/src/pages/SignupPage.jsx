@@ -44,7 +44,7 @@ const SignupPage = () => {
     if (error) dispatch(clearError());
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const { name, email, password, confirmPassword } = formData;
 
@@ -54,14 +54,14 @@ const SignupPage = () => {
       return;
     }
 
-    dispatch(registerUser({ name, email, password }))
-      .then((resultAction) => {
-        if (registerUser.fulfilled.match(resultAction)) {
-          const destination = getIntendedDestination(searchParams);
-          clearIntendedDestination();
-          navigate(destination, { replace: true });
-        }
-      });
+    try {
+      await dispatch(registerUser({ name, email, password }));
+      const destination = getIntendedDestination(searchParams);
+      clearIntendedDestination();
+      navigate(destination, { replace: true });
+    } catch {
+      // Error state is already handled in Redux.
+    }
   };
 
   return (

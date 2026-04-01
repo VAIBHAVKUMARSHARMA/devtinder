@@ -1,13 +1,4 @@
-import axios from 'axios';
-
-
-const API_URL = import.meta.env.VITE_API_URL || '/api';
-
-
-const api = axios.create({
-  baseURL: API_URL,
-  withCredentials: true,
-});
+import { axiosInstance as api } from '@/lib/axios';
 
 
 const getMessages = async (userId, page = 1, limit = 20) => {
@@ -40,5 +31,4 @@ const messageService = {
 };
 
 export default messageService;
-
 

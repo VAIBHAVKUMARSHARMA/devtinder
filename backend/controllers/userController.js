@@ -9,14 +9,26 @@ const generateToken = (id) => {
   });
 };
 
+const getConfiguredFrontendOrigins = () =>
+  String(process.env.FRONTEND_URL || '')
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+
+const isLocalOrigin = (origin = '') =>
+  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+
 const getAuthCookieOptions = () => {
-  const isProduction = process.env.NODE_ENV === 'production';
+  const configuredOrigins = getConfiguredFrontendOrigins();
+  const shouldUseCrossSiteCookies =
+    process.env.NODE_ENV === 'production' ||
+    configuredOrigins.some((origin) => origin.startsWith('https://') && !isLocalOrigin(origin));
 
   return {
     expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
     httpOnly: true,
-    sameSite: isProduction ? 'none' : 'lax',
-    secure: isProduction
+    sameSite: shouldUseCrossSiteCookies ? 'none' : 'lax',
+    secure: shouldUseCrossSiteCookies
   };
 };
 
@@ -133,10 +145,25 @@ const getProfile = async (req, res) => {
     }).populate('recipient', 'name email profilePicture');
 
     // Map connections to return the connected user (not the current user)
-    const connectedUsers = connections.map(connection => {
-      const isRequester = connection.requester._id.toString() === req.user._id.toString();
-      return isRequester ? connection.recipient : connection.requester;
-    });
+    // Some older records may reference deleted users, so filter those safely.
+    const connectedUsers = connections
+      .map(connection => {
+        if (!connection?.requester || !connection?.recipient) {
+          return null;
+        }
+
+        const isRequester = connection.requester._id.toString() === req.user._id.toString();
+        return isRequester ? connection.recipient : connection.requester;
+      })
+      .filter(Boolean);
+
+    const safeConnectionRequests = connectionRequests
+      .map(request => request?.requester)
+      .filter(Boolean);
+
+    const safeSentRequests = sentRequests
+      .map(request => request?.recipient)
+      .filter(Boolean);
 
     res.status(200).json({
       success: true,
@@ -150,8 +177,8 @@ const getProfile = async (req, res) => {
         githubUrl: user.githubUrl,
         linkedinUrl: user.linkedinUrl,
         connections: connectedUsers,
-        connectionRequests: connectionRequests.map(request => request.requester),
-        sentRequests: sentRequests.map(request => request.recipient)
+        connectionRequests: safeConnectionRequests,
+        sentRequests: safeSentRequests
       }
     });
   } catch (error) {
@@ -329,11 +356,11 @@ const getUserById = async (req, res) => {
 // @route   GET /api/users/logout
 // @access  Public
 const logout = (req, res) => {
-  const isProduction = process.env.NODE_ENV === 'production';
+  const cookieOptions = getAuthCookieOptions();
   res.clearCookie('jwt', {
     httpOnly: true,
-    sameSite: isProduction ? 'none' : 'lax',
-    secure: isProduction
+    sameSite: cookieOptions.sameSite,
+    secure: cookieOptions.secure
   });
 
   res.status(200).json({

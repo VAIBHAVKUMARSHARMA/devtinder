@@ -33,18 +33,18 @@ const LoginPage = () => {
     if (error) dispatch(clearError());
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const { email, password } = formData;
 
-    dispatch(loginUser({ email, password }))
-      .then((resultAction) => {
-        if (loginUser.fulfilled.match(resultAction)) {
-          const destination = getIntendedDestination(searchParams);
-          clearIntendedDestination();
-          navigate(destination, { replace: true });
-        }
-      });
+    try {
+      await dispatch(loginUser({ email, password }));
+      const destination = getIntendedDestination(searchParams);
+      clearIntendedDestination();
+      navigate(destination, { replace: true });
+    } catch {
+      // Error state is already handled in Redux.
+    }
   };
 
   return (

@@ -1,10 +1,16 @@
 import { createSlice } from '@reduxjs/toolkit';
 import authService from '@/services/userService';
+import {
+  clearStoredAuth,
+  getStoredAuthToken,
+  saveStoredAuth,
+} from '@/lib/authStorage';
 
 const initialState = {
   user: null,
   token: null,
   isAuthenticated: false,
+  initialized: false,
   loading: false,
   error: null,
 };
@@ -18,6 +24,7 @@ const authSlice = createSlice({
       state.user = action.payload.user || null;
       state.token = action.payload.token || action.payload.user?.token || null;
       state.isAuthenticated = !!action.payload.user;
+      state.initialized = true;
       state.loading = false;
       state.error = null;
     },
@@ -25,6 +32,7 @@ const authSlice = createSlice({
       state.user = null;
       state.token = null;
       state.isAuthenticated = false;
+      state.initialized = true;
       state.error = null;
       state.loading = false;
     },
@@ -37,6 +45,7 @@ const authSlice = createSlice({
     // Error handling
     setError: (state, action) => {
       state.error = action.payload;
+      state.initialized = true;
       state.loading = false;
     },
     clearError: (state) => {
@@ -59,6 +68,10 @@ export const registerUser = (userData) => async (dispatch) => {
     dispatch(setLoading(true));
     const response = await authService.register(userData);
     dispatch(setAuthData(response));
+    saveStoredAuth({
+      user: response.user || null,
+      token: response.token || response.user?.token || null,
+    });
     return response;
   } catch (error) {
     dispatch(setError(error));
@@ -71,6 +84,10 @@ export const loginUser = ({ email, password }) => async (dispatch) => {
     dispatch(setLoading(true));
     const response = await authService.login(email, password);
     dispatch(setAuthData(response));
+    saveStoredAuth({
+      user: response.user || null,
+      token: response.token || response.user?.token || null,
+    });
     return response;
   } catch (error) {
     dispatch(setError(error));
@@ -81,9 +98,11 @@ export const loginUser = ({ email, password }) => async (dispatch) => {
 export const logoutUser = () => async (dispatch) => {
   try {
     await authService.logout();
+    clearStoredAuth();
     dispatch(clearAuthData());
     return null;
   } catch (error) {
+    clearStoredAuth();
     dispatch(setError(error));
     throw error;
   }
@@ -94,6 +113,10 @@ export const updateUserProfile = (userData) => async (dispatch) => {
     dispatch(setLoading(true));
     const response = await authService.updateProfile(userData);
     dispatch(authSlice.actions.updateUserProfile(response.user));
+    saveStoredAuth({
+      user: response.user || null,
+      token: getStoredAuthToken(),
+    });
     return response.user;
   } catch (error) {
     dispatch(setError(error));
@@ -105,14 +128,24 @@ export const getCurrentUser = () => async (dispatch) => {
   try {
     dispatch(setLoading(true));
     const response = await authService.getCurrentUser();
-    dispatch(setAuthData(response));
-    return response;
+    const persistedToken = getStoredAuthToken();
+    const normalizedResponse = persistedToken && !response.token && response.user
+      ? { ...response, token: persistedToken }
+      : response;
+
+    dispatch(setAuthData(normalizedResponse));
+    saveStoredAuth({
+      user: normalizedResponse.user || null,
+      token: normalizedResponse.token || normalizedResponse.user?.token || null,
+    });
+    return normalizedResponse;
   } catch (error) {
     const errorMessage = typeof error === 'string' ? error : error?.message;
     const errorStatus = typeof error === 'object' ? error?.status : null;
 
     // Avoid showing an error on app startup for expected unauthenticated state.
     if (errorStatus === 401) {
+      clearStoredAuth();
       dispatch(clearAuthData());
       return null;
     }

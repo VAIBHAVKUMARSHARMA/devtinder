@@ -4,10 +4,10 @@ import LoadingSpinner from '@/components/LoadingSpinner';
 import { getLoginRedirectUrl } from '@/utils/redirectUtils';
 
 const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useSelector((state) => state.auth);
+  const { isAuthenticated, initialized } = useSelector((state) => state.auth);
   const location = useLocation();
 
-  if (loading) {
+  if (!initialized) {
     return <LoadingSpinner />;
   }
 

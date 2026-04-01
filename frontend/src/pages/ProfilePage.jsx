@@ -259,10 +259,11 @@ const ProfilePage = () => {
     }
 
     dispatch(updateUserProfile(dataToSend))
-      .then((resultAction) => {
-        if (updateUserProfile.fulfilled.match(resultAction)) {
-          setSuccessMessage('Profile updated successfully!');
-        }
+      .then(() => {
+        setSuccessMessage('Profile updated successfully!');
+      })
+      .catch(() => {
+        // Error state is already handled in Redux.
       });
   };
 

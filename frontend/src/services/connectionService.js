@@ -1,13 +1,4 @@
-import axios from 'axios';
-
-
-const API_URL = import.meta.env.VITE_API_URL || '/api';
-
-
-const api = axios.create({
-  baseURL: API_URL,
-  withCredentials: true,
-});
+import { axiosInstance as api } from '@/lib/axios';
 
 
 const getConnections = async () => {
@@ -92,5 +83,4 @@ const connectionService = {
 };
 
 export default connectionService;
-
 

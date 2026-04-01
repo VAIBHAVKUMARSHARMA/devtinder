@@ -1,11 +1,8 @@
-import axios from "axios";
+import { createApiClient } from "@/lib/axios";
 import { API_BASE_URL } from "@/lib/runtimeConfig";
 
 // Create axios instance with credentials (cookies)
-const axiosInstance = axios.create({
-    baseURL: `${API_BASE_URL}/ai`,
-    withCredentials: true,
-});
+const axiosInstance = createApiClient(`${API_BASE_URL}/ai`);
 
 export const getIcebreaker = async (targetUserId, context = []) => {
     try {
