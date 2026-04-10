@@ -17,19 +17,19 @@ const SignupPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
-  const { loading, error, isAuthenticated } = useSelector((state) => state.auth);
+  const { loading, error, isAuthenticated, initialized } = useSelector((state) => state.auth);
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   // Only redirect if user is already authenticated when component mounts
   useEffect(() => {
-    if (isAuthenticated) {
+    if (initialized && isAuthenticated) {
       const destination = getIntendedDestination(searchParams);
       clearIntendedDestination();
       navigate(destination, { replace: true });
     }
-  }, [isAuthenticated, navigate, searchParams]);
+  }, [initialized, isAuthenticated, navigate, searchParams]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;

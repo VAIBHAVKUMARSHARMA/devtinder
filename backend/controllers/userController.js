@@ -18,6 +18,33 @@ const getConfiguredFrontendOrigins = () =>
 const isLocalOrigin = (origin = '') =>
   /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
 
+const getDocumentIdString = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    if (!value._id) {
+      return null;
+    }
+
+    return value._id.toString();
+  }
+
+  return value.toString();
+};
+
+const getConnectedUserFromRecord = (connection, currentUserId) => {
+  const requesterId = getDocumentIdString(connection?.requester);
+  const recipientId = getDocumentIdString(connection?.recipient);
+
+  if (!requesterId || !recipientId) {
+    return null;
+  }
+
+  return requesterId === currentUserId ? connection.recipient : connection.requester;
+};
+
 const getAuthCookieOptions = () => {
   const configuredOrigins = getConfiguredFrontendOrigins();
   const shouldUseCrossSiteCookies =
@@ -118,8 +145,13 @@ const login = async (req, res) => {
 // @access  Private
 const getProfile = async (req, res) => {
   try {
+    const currentUserId = getDocumentIdString(req.user);
+    if (!currentUserId) {
+      return res.status(401).json({ success: false, message: 'Invalid user session. Please log in again.' });
+    }
+
     // Get user data
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(currentUserId);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
@@ -127,34 +159,27 @@ const getProfile = async (req, res) => {
     // Get connections
     const connections = await Connection.find({
       $or: [
-        { requester: req.user._id, status: 'accepted' },
-        { recipient: req.user._id, status: 'accepted' }
+        { requester: currentUserId, status: 'accepted' },
+        { recipient: currentUserId, status: 'accepted' }
       ]
     }).populate('requester recipient', 'name email profilePicture');
 
     // Get connection requests
     const connectionRequests = await Connection.find({
-      recipient: req.user._id,
+      recipient: currentUserId,
       status: 'pending'
     }).populate('requester', 'name email profilePicture');
 
     // Get sent requests
     const sentRequests = await Connection.find({
-      requester: req.user._id,
+      requester: currentUserId,
       status: 'pending'
     }).populate('recipient', 'name email profilePicture');
 
     // Map connections to return the connected user (not the current user)
     // Some older records may reference deleted users, so filter those safely.
     const connectedUsers = connections
-      .map(connection => {
-        if (!connection?.requester || !connection?.recipient) {
-          return null;
-        }
-
-        const isRequester = connection.requester._id.toString() === req.user._id.toString();
-        return isRequester ? connection.recipient : connection.requester;
-      })
+      .map((connection) => getConnectedUserFromRecord(connection, currentUserId))
       .filter(Boolean);
 
     const safeConnectionRequests = connectionRequests

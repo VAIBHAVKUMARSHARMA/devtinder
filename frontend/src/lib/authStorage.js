@@ -16,6 +16,8 @@ const readStoredAuth = () => {
   }
 };
 
+export const getStoredAuth = () => readStoredAuth();
+
 export const getStoredAuthToken = () => readStoredAuth()?.token || null;
 
 export const saveStoredAuth = ({ user = null, token = null } = {}) => {

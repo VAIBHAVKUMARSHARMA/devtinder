@@ -2,15 +2,20 @@ import { createSlice } from '@reduxjs/toolkit';
 import authService from '@/services/userService';
 import {
   clearStoredAuth,
+  getStoredAuth,
   getStoredAuthToken,
   saveStoredAuth,
 } from '@/lib/authStorage';
 
+const storedAuth = getStoredAuth();
+const hasStoredUser = !!storedAuth?.user;
+
 const initialState = {
-  user: null,
-  token: null,
-  isAuthenticated: false,
-  initialized: false,
+  user: storedAuth?.user || null,
+  token: storedAuth?.token || null,
+  isAuthenticated: hasStoredUser,
+  initialized: hasStoredUser,
+  checkingAuth: !hasStoredUser,
   loading: false,
   error: null,
 };
@@ -25,6 +30,7 @@ const authSlice = createSlice({
       state.token = action.payload.token || action.payload.user?.token || null;
       state.isAuthenticated = !!action.payload.user;
       state.initialized = true;
+      state.checkingAuth = false;
       state.loading = false;
       state.error = null;
     },
@@ -33,6 +39,7 @@ const authSlice = createSlice({
       state.token = null;
       state.isAuthenticated = false;
       state.initialized = true;
+      state.checkingAuth = false;
       state.error = null;
       state.loading = false;
     },
@@ -40,12 +47,26 @@ const authSlice = createSlice({
     // Loading states
     setLoading: (state, action) => {
       state.loading = action.payload;
+      if (action.payload) {
+        state.error = null;
+      }
+    },
+    setCheckingAuth: (state, action) => {
+      state.checkingAuth = action.payload;
+      if (action.payload) {
+        state.error = null;
+      }
+    },
+    finishAuthCheck: (state) => {
+      state.initialized = true;
+      state.checkingAuth = false;
     },
 
     // Error handling
     setError: (state, action) => {
       state.error = action.payload;
       state.initialized = true;
+      state.checkingAuth = false;
       state.loading = false;
     },
     clearError: (state) => {
@@ -124,9 +145,11 @@ export const updateUserProfile = (userData) => async (dispatch) => {
   }
 };
 
-export const getCurrentUser = () => async (dispatch) => {
+export const getCurrentUser = () => async (dispatch, getState) => {
+  const hasCachedSession = !!(getState().auth.user || getState().auth.token);
+
   try {
-    dispatch(setLoading(true));
+    dispatch(setCheckingAuth(true));
     const response = await authService.getCurrentUser();
     const persistedToken = getStoredAuthToken();
     const normalizedResponse = persistedToken && !response.token && response.user
@@ -150,8 +173,9 @@ export const getCurrentUser = () => async (dispatch) => {
       return null;
     }
 
-    dispatch(setError(errorMessage || 'Failed to get user profile'));
-    throw error;
+    console.error('Failed to restore auth session:', errorMessage || error);
+    dispatch(finishAuthCheck());
+    return hasCachedSession ? getState().auth.user : null;
   }
 };
 
@@ -159,6 +183,8 @@ export const {
   setAuthData,
   clearAuthData,
   setLoading,
+  setCheckingAuth,
+  finishAuthCheck,
   setError,
   clearError,
   updateUserProfile: updateUserProfileAction

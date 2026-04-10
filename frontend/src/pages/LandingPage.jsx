@@ -7,13 +7,13 @@ import { useEffect } from 'react';
 
 const LandingPage = () => {
   const navigate = useNavigate();
-  const { isAuthenticated } = useSelector((state) => state.auth);
+  const { isAuthenticated, initialized } = useSelector((state) => state.auth);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (initialized && isAuthenticated) {
       navigate('/dashboard');
     }
-  }, [isAuthenticated, navigate]);
+  }, [initialized, isAuthenticated, navigate]);
 
   const features = [
     {

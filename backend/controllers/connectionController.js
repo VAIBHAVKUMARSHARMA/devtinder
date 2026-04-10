@@ -1,6 +1,33 @@
 const User = require('../models/User');
 const Connection = require('../models/Connection');
 
+const getDocumentIdString = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    if (!value._id) {
+      return null;
+    }
+
+    return value._id.toString();
+  }
+
+  return value.toString();
+};
+
+const getConnectedUserFromRecord = (connection, currentUserId) => {
+  const requesterId = getDocumentIdString(connection?.requester);
+  const recipientId = getDocumentIdString(connection?.recipient);
+
+  if (!requesterId || !recipientId) {
+    return null;
+  }
+
+  return requesterId === currentUserId ? connection.recipient : connection.requester;
+};
+
 // @desc    Send connection request to another user
 // @route   POST /api/connections/request/:userId
 // @access  Private
@@ -145,7 +172,9 @@ const getConnectionRequests = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      requests: connectionRequests.map(request => request.requester)
+      requests: connectionRequests
+        .map((request) => request?.requester || null)
+        .filter(Boolean)
     });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -157,19 +186,23 @@ const getConnectionRequests = async (req, res) => {
 // @access  Private
 const getConnections = async (req, res) => {
   try {
+    const currentUserId = getDocumentIdString(req.user);
+    if (!currentUserId) {
+      return res.status(401).json({ success: false, message: 'Invalid user session. Please log in again.' });
+    }
+
     // Find connections where the user is either the requester or recipient
     const connections = await Connection.find({
       $or: [
-        { requester: req.user._id, status: 'accepted' },
-        { recipient: req.user._id, status: 'accepted' }
+        { requester: currentUserId, status: 'accepted' },
+        { recipient: currentUserId, status: 'accepted' }
       ]
     }).populate('requester recipient', 'name email bio skills profilePicture');
 
     // Map the connections to return the connected user (not the current user)
-    const connectedUsers = connections.map(connection => {
-      const isRequester = connection.requester._id.toString() === req.user._id.toString();
-      return isRequester ? connection.recipient : connection.requester;
-    });
+    const connectedUsers = connections
+      .map((connection) => getConnectedUserFromRecord(connection, currentUserId))
+      .filter(Boolean);
 
     res.status(200).json({
       success: true,
