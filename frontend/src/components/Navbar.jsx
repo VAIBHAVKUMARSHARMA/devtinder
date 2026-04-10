@@ -73,23 +73,35 @@ const Navbar = () => {
           </div>
         </div>
       ) : (
-        <div className="container flex h-14 items-center justify-between mx-auto">
-          <div className="font-bold text-xl transition-transform duration-200 hover:scale-110 active:scale-95">
-            <Link to="/">
+        <div className="flex h-14 items-center">
+          <div className="hidden md:flex w-64 h-full items-center px-6">
+            <Link
+              to="/"
+              className="font-bold text-xl tracking-tight transition-transform duration-200 hover:scale-105 active:scale-95"
+            >
               DevTinder
             </Link>
           </div>
 
-          <div className="flex items-center space-x-4">
-            <ThemeToggle />
+          <div className="flex flex-1 items-center px-4 md:px-6">
+            <Link
+              to="/"
+              className="font-bold text-xl tracking-tight transition-transform duration-200 hover:scale-105 active:scale-95 md:hidden"
+            >
+              DevTinder
+            </Link>
 
-            <div className="flex items-center space-x-2">
-              <Button variant="ghost" asChild>
-                <Link to="/login">Login</Link>
-              </Button>
-              <Button asChild>
-                <Link to="/signup">Sign Up</Link>
-              </Button>
+            <div className="ml-auto flex items-center gap-4 md:gap-5">
+              <ThemeToggle />
+
+              <div className="flex items-center space-x-2">
+                <Button variant="ghost" asChild>
+                  <Link to="/login">Login</Link>
+                </Button>
+                <Button asChild>
+                  <Link to="/signup">Sign Up</Link>
+                </Button>
+              </div>
             </div>
           </div>
         </div>
