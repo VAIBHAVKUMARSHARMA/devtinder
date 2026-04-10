@@ -68,7 +68,7 @@ const SignupPage = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <div className="container flex items-center justify-center py-12">
+      <div className="container mx-auto flex min-h-[calc(100vh-3.5rem)] items-center justify-center px-4 py-8">
         <div className="w-full max-w-md space-y-6 p-8 border rounded-lg shadow-sm animate-in fade-in duration-500">
           <div className="text-center">
             <h1 className="text-2xl font-bold">Create an Account</h1>
